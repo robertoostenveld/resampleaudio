@@ -100,6 +100,8 @@ int main(int argc, char *argv[]) {
 				PaError err = paNoError;
 				int numDevices, defaultDisplayed;
 				const PaDeviceInfo *deviceInfo;
+        
+        initscr();
 
 				/* STAGE 1: Initialize the inputData and outputData for use by the callbacks. */
 				inputData.count = 0;
@@ -116,7 +118,7 @@ int main(int argc, char *argv[]) {
 								bzero(outputData.data, OUTPUT_BUFFER_LENGTH*CHANNEL_COUNT);
 
 				/* STAGE 2: Initialize the resampling. */
-				printf("Setting up %s rate converter with %s\n",
+				printw("Setting up %s rate converter with %s\n",
 				       src_get_name (SRC_SINC_MEDIUM_QUALITY),
 				       src_get_description (SRC_SINC_MEDIUM_QUALITY));
 
@@ -133,7 +135,7 @@ int main(int argc, char *argv[]) {
 				data.data_out = NULL;
 
         ratio = ((float)OUTPUT_SAMPLE_RATE) / ((float)INPUT_SAMPLE_RATE);
-        printf("ratio = %f\n", ratio);
+        printw("ratio = %f\n", ratio);
 				err = src_set_ratio (state, ratio);
 				if (err)
 				{
@@ -154,8 +156,8 @@ int main(int argc, char *argv[]) {
 								goto error3;
 				}
 
-				printf( "PortAudio version: 0x%08X\n", Pa_GetVersion());
-				printf( "Version text: '%s'\n", Pa_GetVersionInfo()->versionText );
+				printw( "PortAudio version: 0x%08X\n", Pa_GetVersion());
+				printw( "Version text: '%s'\n", Pa_GetVersionInfo()->versionText );
 
 				numDevices = Pa_GetDeviceCount();
 				if( numDevices < 0 )
@@ -166,51 +168,16 @@ int main(int argc, char *argv[]) {
 								goto error3;
 				}
 
-				printf( "Number of devices = %d\n", numDevices );
+				printw( "Number of devices = %d\n", numDevices );
 				for( int i=0; i<numDevices; i++ )
 				{
 								deviceInfo = Pa_GetDeviceInfo( i );
-								printf( "--------------------------------------- device #%d\n", i );
-
-								/* Mark global and API specific default devices */
-								defaultDisplayed = 0;
-								if( i == Pa_GetDefaultInputDevice() )
-								{
-												printf( "[ Default Input" );
-												defaultDisplayed = 1;
-								}
-								else if( i == Pa_GetHostApiInfo( deviceInfo->hostApi )->defaultInputDevice )
-								{
-												const PaHostApiInfo *hostInfo = Pa_GetHostApiInfo( deviceInfo->hostApi );
-												printf( "[ Default %s Input", hostInfo->name );
-												defaultDisplayed = 1;
-								}
-
-								if( i == Pa_GetDefaultOutputDevice() )
-								{
-												printf( (defaultDisplayed ? "," : "[") );
-												printf( " Default Output" );
-												defaultDisplayed = 1;
-								}
-								else if( i == Pa_GetHostApiInfo( deviceInfo->hostApi )->defaultOutputDevice )
-								{
-												const PaHostApiInfo *hostInfo = Pa_GetHostApiInfo( deviceInfo->hostApi );
-												printf( (defaultDisplayed ? "," : "[") );
-												printf( " Default %s Output", hostInfo->name );
-												defaultDisplayed = 1;
-								}
-
-								if( defaultDisplayed )
-												printf( " ]\n" );
-
-								printf( "Name        = %s\n", deviceInfo->name );
-								printf( "Host API    = %s\n", Pa_GetHostApiInfo( deviceInfo->hostApi )->name );
-								printf( "Max inputs  = %d\n", deviceInfo->maxInputChannels  );
-								printf( "Max outputs = %d\n", deviceInfo->maxOutputChannels  );
+								printw( "device %d\t", i );
+								printw( "%s\t", deviceInfo->name );
+								printw( "(in = %d, out = %d)\n", deviceInfo->maxInputChannels, deviceInfo->maxOutputChannels  );
 				}
 
-        initscr();
-        printf()
+        printw("Select input device: ");
         err = getnstr(str, 255);
         if (err == ERR) {
           fprintf(stderr, "Error: Invalid input.\n");
@@ -300,8 +267,8 @@ int main(int argc, char *argv[]) {
 
 				while (1) {
 								Pa_Sleep(100);
-								printf("inputData.count  = %ld\n", inputData.count);
-								printf("outputData.count = %ld\n", outputData.count);
+								printw("inputData.count  = %ld\n", inputData.count);
+								printw("outputData.count = %ld\n", outputData.count);
 								data.data_in = inputData.data;
 								data.input_frames = inputData.count;
 								data.data_out = outputData.data + outputData.count * CHANNEL_COUNT * sizeof(float);
@@ -311,9 +278,9 @@ int main(int argc, char *argv[]) {
 
 								err = src_process (state, &data);
 
-                printf("data.src_ratio  = %f\n", data.src_ratio);
-                printf("data.input_frames_used  = %ld\n", data.input_frames_used);
-                printf("data.output_frames_gen  = %ld\n", data.output_frames_gen);
+                printw("data.src_ratio  = %f\n", data.src_ratio);
+                printw("data.input_frames_used  = %ld\n", data.input_frames_used);
+                printw("data.output_frames_gen  = %ld\n", data.output_frames_gen);
 
 								if (err)
 								{
@@ -335,11 +302,11 @@ int main(int argc, char *argv[]) {
 				if( err != paNoError ) goto error3;
 
 				Pa_Terminate();
-				printf("Test finished.\n");
-				printf("inputCallbackCount  = %lu\n", inputCallbackCount);
-				printf("outputCallbackCount = %lu\n", outputCallbackCount);
-				printf("inputData.count     = %lu\n", inputData.count);
-				printf("outputData.count    = %lu\n", outputData.count);
+				printw("Test finished.\n");
+				printw("inputCallbackCount  = %lu\n", inputCallbackCount);
+				printw("outputCallbackCount = %lu\n", outputCallbackCount);
+				printw("inputData.count     = %lu\n", inputData.count);
+				printw("outputData.count    = %lu\n", outputData.count);
 
 				free(inputData.data);
 				free(outputData.data);
