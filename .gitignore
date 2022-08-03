@@ -1,0 +1,10 @@
+*.o
+curhell2
+curhello
+curwin1
+pa_devs
+pa_fuzz
+pa_read_write_wire
+paex_saw
+resampleaudio
+timewarp-file
