@@ -58,4 +58,4 @@ clean:
 	rm -f core *.o *~ $(EXECUTABLES)
 
 dist: clean
-	cd .. && tar -cvzf --exclude-vcs $(PACKAGE)-${shell date +%Y%m%d}.tgz $(PACKAGE)/*
+	cd .. && tar --exclude-vcs -cvzf $(PACKAGE)-${shell date +%Y%m%d}.tgz $(PACKAGE)/*
