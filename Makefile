@@ -48,6 +48,9 @@ curhell2: curhell2.o
 timewarp-file: timewarp-file.o
 	$(CC) $(LIBPATH) -o $(BINDIR)/$@ $^ $(LIBS)
 
+scanw: scanw.o
+	$(CC) $(LIBPATH) -o $(BINDIR)/$@ $^ $(LIBS)
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $*.c
 
