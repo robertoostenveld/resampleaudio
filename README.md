@@ -10,9 +10,15 @@ For Windows you can use [VB-Audio Cable](https://vb-audio.com/Cable/index.htm) t
 
 This application takes an input audio stream - for example the 8000 Hz stream from the EAVI board - and resamples/upsamples and streams it to another (virtual) output audio device.
 
+This application makes use of [PortAudio](http://www.portaudio.com) and [Secret Rabbit Code (aka libsamplerate)](http://libsndfile.github.io/libsamplerate/).
+
 ## resamplelsl
 
+**Note that the "resamplelsl" application is not finished yet.**
+
 This application takes an input LSL stream - for example from the Unicorn EEG system - and resamples/upsamples and streams it to another (virtual) output audio device.
+
+This application makes use of [PortAudio](http://www.portaudio.com), [libsamplerate (aka Secret Rabbit Code )](http://libsndfile.github.io/libsamplerate/) and [liblsl (aka LabStreamingLayer)](https://labstreaminglayer.readthedocs.io/projects/liblsl/).
 
 # Copyrights
 
