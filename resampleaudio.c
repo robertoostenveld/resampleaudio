@@ -13,15 +13,24 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <math.h>
+
+#ifdef __linux__ 
+//linux code goes here
+#include <unistd.h>
+#define min(x, y) (x<y ? x : y)
+#define max(x, y) (x>y ? x : y)
+
+#elif _WIN32
+// windows code goes here
+#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)  
+#endif
 
 #include "portaudio.h"
 #include "samplerate.h"
 
+#define STRLEN 80
 #define smooth(old, new, lambda) ((1.0-lambda)*old + lambda*new)
-#define min(x, y) (x<y ? x : y)
-#define max(x, y) (x>y ? x : y)
 
 #define SAMPLE_TYPE   paFloat32
 #define BLOCKSIZE     (0.01) // in seconds
@@ -165,8 +174,7 @@ void stream_finished(void *userData)
 
 /*******************************************************************************************************/
 int main(int argc, char *argv[]) {
-				char *line = NULL;
-				size_t linecap = 0;
+				char line[STRLEN];
 
 				int inputDevice, outputDevice;
 				PaStream *inputStream, *outputStream;
@@ -189,7 +197,7 @@ int main(int argc, char *argv[]) {
 				}
 
 				printf("PortAudio version: 0x%08X\n", Pa_GetVersion());
-				printf("Version text: '%s'\n", Pa_GetVersionInfo()->versionText );
+//				printf("Version text: '%s'\n", Pa_GetVersionInfo()->versionText );
 
 				/* Initialize library before making any other calls. */
 				err = Pa_Initialize();
@@ -221,15 +229,15 @@ int main(int argc, char *argv[]) {
 				}
 
 				printf("Select input device: ");
-				getline(&line, &linecap, stdin);
+				fgets(line, STRLEN, stdin);
 				inputDevice = atoi(line);
 
 				printf("Input sampling rate: ");
-				getline(&line, &linecap, stdin);
+				fgets(line, STRLEN, stdin);
 				inputRate = atof(line);
 
 				printf("Number of channels: ");
-				getline(&line, &linecap, stdin);
+				fgets(line, STRLEN, stdin);
 				channelCount = atoi(line);
 
 				inputParameters.device = inputDevice;
@@ -261,11 +269,11 @@ int main(int argc, char *argv[]) {
 				Pa_SetStreamFinishedCallback(&inputStream, stream_finished);
 
 				printf("Select output device: ");
-				getline(&line, &linecap, stdin);
+				fgets(line, STRLEN, stdin);
 				outputDevice = atoi(line);
 
 				printf("Output sampling rate: ");
-				getline(&line, &linecap, stdin);
+				fgets(line, STRLEN, stdin);
 				outputRate = atof(line);
 
 				outputParameters.device = outputDevice;

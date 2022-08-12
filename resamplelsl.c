@@ -13,16 +13,25 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <math.h>
+
+#ifdef __linux__ 
+//linux code goes here
+#include <unistd.h>
+#define min(x, y) (x<y ? x : y)
+#define max(x, y) (x>y ? x : y)
+
+#elif _WIN32
+// windows code goes here
+#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)  
+#endif
 
 #include "portaudio.h"
 #include "samplerate.h"
 #include "lsl_c.h"
 
+#define STRLEN 80
 #define smooth(old, new, lambda) ((1.0-lambda)*old + lambda*new)
-#define min(x, y) (x<y ? x : y)
-#define max(x, y) (x>y ? x : y)
 
 #define SAMPLE_TYPE   paFloat32
 #define BLOCKSIZE     (0.01) // in seconds
@@ -142,11 +151,10 @@ void stream_finished(void *userData)
 
 /*******************************************************************************************************/
 int main(int argc, char *argv[]) {
-				char *line = NULL;
-				size_t linecap = 0;
+		char line[STRLEN];
 
         lsl_streaminfo info;     /* the streaminfo returned by the resolve call */
-      	lsl_inlet inlet;	       /* a stream inlet to get samples from */
+      	lsl_inlet inlet;	     /* a stream inlet to get samples from */
       	float *eegdata;          /* array to hold our current sample */
 
 				int inputDevice, outputDevice;
@@ -217,11 +225,11 @@ int main(int argc, char *argv[]) {
 				}
 
 				printf("Select output device: ");
-				getline(&line, &linecap, stdin);
+				fgets(line, STRLEN, stdin);
 				outputDevice = atoi(line);
 
 				printf("Output sampling rate: ");
-				getline(&line, &linecap, stdin);
+				fgets(line, STRLEN, stdin);
 				outputRate = atof(line);
 
 				outputParameters.device = outputDevice;
