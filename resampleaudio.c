@@ -15,15 +15,18 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 #include <stdlib.h>
 #include <math.h>
 
-#ifdef __linux__ 
+#if defined __linux__ || defined __APPLE__
 //linux code goes here
 #include <unistd.h>
 #define min(x, y) (x<y ? x : y)
 #define max(x, y) (x>y ? x : y)
 
-#elif _WIN32
+#elif defined _WIN32
 // windows code goes here
-#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)  
+#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
+
+#else
+#error Platform not supported
 #endif
 
 #include "portaudio.h"
@@ -392,8 +395,6 @@ error2:
 								free(inputData.data);
 				if (outputData.data)
 								free(outputData.data);
-				if (line)
-								free(line);
 
 error1:
 				Pa_Terminate();
