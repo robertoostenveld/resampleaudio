@@ -1,19 +1,18 @@
 /*
 
-Copyright (C) 2022, Robert Oostenveld
+   Copyright (C) 2022, Robert Oostenveld
 
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+   This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
-This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+   This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
- You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
+   You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-*/
+ */
 
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
-#include <math.h>
+#include <string.h>
 
 #if defined __linux__ || defined __APPLE__
 //linux code goes here
@@ -21,7 +20,7 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 #define min(x, y) (x<y ? x : y)
 #define max(x, y) (x>y ? x : y)
 
-#elif _WIN32
+#elif defined _WIN32
 // windows code goes here
 #define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
 
@@ -72,14 +71,14 @@ int resample_buffers(void)
 				if (outputData.frames==outputBufsize)
 								return 0;
 
-				int err = src_process (resampleState, &resampleData);
-				if (err)
+				int paErr = src_process (resampleState, &resampleData);
+				if (paErr)
 				{
-								printf("ERROR: src_process returned 0x%x\n", err );
-								printf("ERROR message: %s\n", src_strerror(err));
-								return err;
+								printf("ERROR: src_process returned 0x%x\n", paErr );
+								printf("ERROR message: %s\n", src_strerror(paErr));
+								exit(paErr);
 				}
-
+        
 				/* the output data buffer increased */
 				outputData.frames += resampleData.output_frames_gen;
 
@@ -95,27 +94,32 @@ int resample_buffers(void)
 int update_ratio(void)
 {
 				float nominal = (float)outputRate/inputRate;
-				float estimate = nominal + (0.5*outputBufsize - outputData.frames) / inputBlocksize;
+				float estimate = nominal + (0.5*outputBufsize - outputData.frames) / outputBlocksize;
 
 				/* do not change the ratio by too much */
-				estimate = min(estimate, 1.1*nominal);
-				estimate = max(estimate, 0.9*nominal);
+				estimate = min(estimate, 1.2*nominal);
+				estimate = max(estimate, 0.8*nominal);
 
 				/* allow some variation of the target buffer size */
 				/* it should fall between the lower and upper range */
-				float lower = (0.49*outputBufsize);
-				float upper = (0.51*outputBufsize);
+        float verylow   = (0.40*outputBufsize);
+				float low       = (0.48*outputBufsize);
+        float high      = (0.52*outputBufsize);
+				float veryhigh  = (0.60*outputBufsize);
 
-				if (outputData.frames<lower || outputData.frames>upper)
-								/* increase or decrease the ratio to the value that appears to be needed */
-								resampleRatio = smooth(resampleRatio, estimate, 0.001);
+        if (outputData.frames<verylow)
+                resampleRatio = smooth(resampleRatio, estimate, 0.1);
+        else if (outputData.frames<low)
+								resampleRatio = smooth(resampleRatio, estimate, 0.01);
+        else if (outputData.frames>high)
+              resampleRatio = smooth(resampleRatio, estimate, 0.01);
+        else if (outputData.frames>veryhigh)
+							resampleRatio = smooth(resampleRatio, estimate, 0.1);
 				else
-								/* change the ratio towards the nominal value */
-								resampleRatio = smooth(resampleRatio, nominal, 0.1);
+							resampleRatio = smooth(resampleRatio, nominal, 0.1);
 
-/*
-        printf("%0.f\t%lu\t%0.f\t%f\t%f\n", lower, outputData.frames, upper, estimate, resampleRatio);
- */
+				// printf("%lu\t%f\t%f\t%f\n", outputData.frames, nominal, estimate, resampleRatio);
+
 				return 0;
 }
 
@@ -142,6 +146,12 @@ static int output_callback( const void *input,
 
 				outputData->frames -= newFrames;
 
+				if (enableResample)
+								resample_buffers();
+
+        if (enableUpdate)
+								update_ratio();
+
 				return 0;
 }
 
@@ -153,57 +163,72 @@ void stream_finished(void *userData)
 }
 
 /*******************************************************************************************************/
-int main(int argc, char *argv[]) {
-		char line[STRLEN];
+int main(int argc, char* argv[]) {
+				char line[STRLEN];
 
-        lsl_streaminfo info;     /* the streaminfo returned by the resolve call */
-      	lsl_inlet inlet;	     /* a stream inlet to get samples from */
-      	float *eegdata;          /* array to hold our current sample */
-
-				int inputDevice, outputDevice;
-				PaStream *inputStream, *outputStream;
-				PaStreamParameters inputParameters, outputParameters;
-				PaError err = paNoError;
-				int numDevices;
+				/* variables that are specific for PortAudio */
+				unsigned int outputDevice;
+				PaStream *outputStream;
+				PaStreamParameters outputParameters;
+				PaError paErr = paNoError;
+				unsigned int numDevices;
 				const PaDeviceInfo *deviceInfo;
 
-        printf("Waiting for an EEG stream...\n");
-      	lsl_resolve_byprop(&info, 1, "type", "EEG", 1, LSL_FOREVER);
-        
-        lsl_channel_format_t fmt = lsl_get_channel_format(info);
-  	    double srate = lsl_get_nominal_srate(info);
+				/* variables that are specific for LSL */
+				lsl_streaminfo info;
+				lsl_inlet inlet;
+				int lslErr = 0;
+				float *eegdata = NULL;
+				double timestamp, timestamp0;
+        unsigned long samplesReceived = 0;
+        const char *type, *name;
 
-        inlet = lsl_create_inlet(info, 1, LSL_NO_PREFERENCE, 1);
-        lsl_open_stream(inlet, LSL_FOREVER, &err);
-        if (err != 0)
-        {
-          printf("ERROR: lsl_open_stream returned 0x%x\n", err );
-          goto error0;
-        }
+				/* STAGE 1: Initialize the EEG input and audio output. */
 
+				printf("LSL version: %s\n", lsl_library_info());
 
-				/* STAGE 1: Initialize the audio input and output. */
+				printf("Waiting for an LSL stream of type EEG...\n");
+				lsl_resolve_byprop(&info, 1, "type", "EEG", 1, LSL_FOREVER);
 
-				inputParameters.device = paNoDevice;
+				type = lsl_get_type(info);
+				name = lsl_get_name(info);
+        /* the channelCount and inputRate are global variables */
+				channelCount = lsl_get_channel_count(info);
+				inputRate = lsl_get_nominal_srate(info);
+
+				printf("type         = %s\n", type);
+				printf("name         = %s\n", name);
+				printf("channelCount = %d\n", channelCount);
+				printf("inputRate    = %f\n", inputRate);
+
+				inputBufsize = BUFFER * inputRate;
+				inputBlocksize = 1;
+
+				eegdata = malloc(channelCount * sizeof(float));
+				if (eegdata == NULL)
+				{
+								printf("ERROR: malloc()");
+								goto error1;
+				}
+
 				outputParameters.device = paNoDevice;
 
-				err = Pa_Initialize();
-				if( err != paNoError )
+				paErr = Pa_Initialize();
+				if( paErr != paNoError )
 				{
-								printf("ERROR: Pa_Initialize returned 0x%x\n", err );
-								printf("ERROR message: %s\n", Pa_GetErrorText( err ) );
+								printf("ERROR: Pa_Initialize returned 0x%x\n", paErr );
+								printf("ERROR message: %s\n", Pa_GetErrorText( paErr ) );
 								goto error1;
 				}
 
 				printf("PortAudio version: 0x%08X\n", Pa_GetVersion());
-				printf("Version text: '%s'\n", Pa_GetVersionInfo()->versionText );
 
 				/* Initialize library before making any other calls. */
-				err = Pa_Initialize();
-				if( err != paNoError )
+				paErr = Pa_Initialize();
+				if( paErr != paNoError )
 				{
 								printf("ERROR: Cannot initialize PortAudio.\n");
-								printf("ERROR message: %s\n", Pa_GetErrorText( err ) );
+								printf("ERROR message: %s\n", Pa_GetErrorText( paErr ) );
 								goto error1;
 				}
 
@@ -211,8 +236,8 @@ int main(int argc, char *argv[]) {
 				if( numDevices < 0 )
 				{
 								printf("ERROR: Pa_GetDeviceCount returned 0x%x\n", numDevices );
-								printf("ERROR message: %s\n", Pa_GetErrorText( err ) );
-								err = numDevices;
+								printf("ERROR message: %s\n", Pa_GetErrorText( paErr ) );
+								paErr = numDevices;
 								goto error1;
 				}
 
@@ -220,7 +245,6 @@ int main(int argc, char *argv[]) {
 				for( int i=0; i<numDevices; i++ )
 				{
 								deviceInfo = Pa_GetDeviceInfo( i );
-								// Pa_GetDefaultOutputDevice
 								printf("device %d %s (%d in, %d out)\n", i,
 								       deviceInfo->name,
 								       deviceInfo->maxInputChannels,
@@ -244,7 +268,7 @@ int main(int argc, char *argv[]) {
 				outputBufsize = BUFFER * outputRate;
 				outputBlocksize = BLOCKSIZE * outputRate;
 
-				err = Pa_OpenStream(
+				paErr = Pa_OpenStream(
 								&outputStream,
 								NULL,
 								&outputParameters,
@@ -253,10 +277,10 @@ int main(int argc, char *argv[]) {
 								paClipOff,
 								output_callback,
 								&outputData );
-				if( err != paNoError )
+				if( paErr != paNoError )
 				{
 								printf("ERROR: Cannot open output stream.\n");
-								printf("ERROR message: %s\n", Pa_GetErrorText( err ) );
+								printf("ERROR message: %s\n", Pa_GetErrorText( paErr ) );
 								goto error1;
 				}
 
@@ -281,81 +305,121 @@ int main(int argc, char *argv[]) {
 
 				/* STAGE 3: Initialize the resampling. */
 
-				resampleRatio = outputRate / inputRate;
-				printf("Initial resampleRatio = %f\n", resampleRatio);
-
 				printf("Setting up %s rate converter with %s\n",
 				       src_get_name (SRC_SINC_MEDIUM_QUALITY),
 				       src_get_description (SRC_SINC_MEDIUM_QUALITY));
 
-				resampleState = src_new (SRC_SINC_MEDIUM_QUALITY, channelCount, &err);
+				resampleState = src_new (SRC_SINC_MEDIUM_QUALITY, channelCount, &paErr);
 				if (resampleState == NULL)
 				{
-								printf("ERROR: src_new returned 0x%x\n", err );
-								printf("ERROR message: %s\n", src_strerror(err));
-								goto error3;
-				}
-
-				err = src_set_ratio (resampleState, resampleRatio);
-				if (err)
-				{
-								printf("ERROR: src_set_ratio returned 0x%x\n", err );
-								printf("ERROR message: %s\n", src_strerror(err));
+								printf("ERROR: src_new returned 0x%x\n", paErr );
+								printf("ERROR message: %s\n", src_strerror(paErr));
 								goto error3;
 				}
 
 				/* STAGE 4: Start the streams. */
 
-				err = Pa_StartStream( outputStream );
-				if( err != paNoError )
+				paErr = Pa_StartStream( outputStream );
+				if( paErr != paNoError )
 				{
 								printf("ERROR: Cannot start output stream.\n");
-								printf("ERROR message: %s\n", Pa_GetErrorText( err ) );
+								printf("ERROR message: %s\n", Pa_GetErrorText( paErr ) );
 								goto error3;
 				}
 
-				printf("Filling buffer.\n");
+				inlet = lsl_create_inlet(info, 30, LSL_NO_PREFERENCE, 1);
+				lsl_open_stream(inlet, LSL_FOREVER, &lslErr);
+				if (lslErr != 0)
+				{
+								printf("%s\n", lsl_last_error());
+								goto error2;
+				}
 
-				/* Wait one second to fill the input buffer halfway */
-				Pa_Sleep(1000);
-				enableResample = 1;
+        printf("Filling buffer...\n");
+        timestamp0 = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
 
-				/* Wait one second to enable the updating of the resampling ratio */
-				Pa_Sleep(1000);
-				enableUpdate = 1;
+        /* fill the input buffer halfway */
+        while (samplesReceived<inputBufsize/2)
+        {
+          timestamp = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
+          if (lslErr != 0)
+          {
+                  printf("%s\n", lsl_last_error());
+                  goto error3;
+          }
+          samplesReceived++;
 
-				printf("Running.\n");
+          /* add the data to the input buffer and increment the frame counter */
+          size_t len = channelCount * sizeof(float);
+          memcpy(inputData.data + inputData.frames * channelCount, eegdata, len);
+          inputData.frames++;
+        }
 
-				while (keepRunning)
-								Pa_Sleep(1000);
+        /* estimate the input sample rate */
+        inputRate = (float)samplesReceived/(timestamp - timestamp0);
+        printf("Estimated inputRate = %f\n", inputRate);
+        timestamp0 = timestamp;
+        
+        resampleRatio = outputRate / inputRate;
+        printf("Initial resampleRatio = %f\n", resampleRatio);
 
-				err = Pa_StopStream( outputStream );
-				if( err != paNoError ) goto error3;
-				err = Pa_CloseStream( outputStream );
-				if( err != paNoError ) goto error3;
+        paErr = src_set_ratio (resampleState, resampleRatio);
+        if (paErr)
+        {
+                printf("ERROR: src_set_ratio returned 0x%x\n", paErr );
+                printf("ERROR message: %s\n", src_strerror(paErr));
+                goto error3;
+        }
+
+        printf("Receiving data...\n");
+
+        enableResample = 1;
+        enableUpdate = 1;
+        
+				while (1)
+				{
+								timestamp = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
+								if (lslErr != 0)
+								{
+												printf("%s\n", lsl_last_error());
+												goto error3;
+								}
+                samplesReceived++;
+
+								if (inputData.frames == inputBufsize) {
+												/* input buffer overrun, drop the oldest sample */
+												size_t len = (inputData.frames - 1) * channelCount * sizeof(float);
+												memcpy(inputData.data, inputData.data + 1 * channelCount, len);
+												inputData.frames--;
+								}
+
+								/* add the current sample to the input buffer and increment the counter */
+								size_t len = channelCount * sizeof(float);
+								memcpy(inputData.data + inputData.frames * channelCount, eegdata, len);
+								inputData.frames++;
+                
+                /* update the estimated input sample rate, smooth over 1000 seconds */
+                inputRate = smooth(inputRate, 1.0/(timestamp - timestamp0), 0.001/lsl_get_nominal_srate(info));
+                timestamp0 = timestamp;
+
+                if ((samplesReceived % (unsigned long)lsl_get_nominal_srate(info)) == 0)
+                {
+                    printf("inputRate = %8.2f\t", inputRate);
+                    printf("resampleRatio = %8.2f\t", resampleRatio);
+                    printf("inputData = %8lu\t", inputData.frames);
+                    printf("outputData = %8lu\t", outputData.frames);
+                    printf("\n");
+                }
+				}
+
 
 error3:
-				if (resampleState)
-								src_delete (resampleState);
+				lsl_destroy_inlet(inlet);
 
 error2:
-				if (inputData.data)
-								free(inputData.data);
-				if (outputData.data)
-								free(outputData.data);
+				if (eegdata)
+								free(eegdata);
 
 error1:
-				Pa_Terminate();
-
-error0:
-        lsl_destroy_inlet(inlet);
-
-final:
-        if (err)
-								printf("Error number: %d\n", err );
-				else
-								printf("Finished.");
-				return err;
-
-
+				return lslErr;
 }
