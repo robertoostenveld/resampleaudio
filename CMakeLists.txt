@@ -8,24 +8,25 @@ add_executable(resamplelsl resamplelsl.c)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-if (UNIX)
 include_directories(/usr/local/include)
+include_directories(external/portaudio/include external/samplerate/include external/lsl/include)
+
+if (UNIX)
 endif()
 
 if (WIN32)
-include_directories(external/portaudio/include external/samplerate/include external/lsl/include)
 endif()
 
 if (APPLE)
-# these are needed by the static libportaudio.a
+# these are needed by the static libportaudio.a that is installed by homebrew
 target_link_libraries(resampleaudio "-framework CoreServices -framework CoreFoundation -framework AudioUnit -framework AudioToolbox -framework CoreAudio")
 target_link_libraries(resamplelsl "-framework CoreServices -framework CoreFoundation -framework AudioUnit -framework AudioToolbox -framework CoreAudio")
 endif()
 
 # use static libraries where possible to facilitate distribution of the executable
-find_library(PORTAUDIO NAMES libportaudio.a portaudio.lib portaudio_static_x64.lib portaudio_x64.lib PATHS /usr/local/lib external/portaudio/lib)
-find_library(RESAMPLE NAMES libsamplerate.a samplerate.lib PATHS /usr/local/lib external/samplerate/lib)
-find_library(LSL NAMES liblsl.a lsl.lib PATHS /usr/local/lib external/lsl/lib)
+find_library(PORTAUDIO NAMES libportaudio.a portaudio.lib portaudio_static_x64.lib portaudio_x64.lib PATHS external/portaudio/lib /usr/local/lib)
+find_library(RESAMPLE NAMES libsamplerate.a samplerate.lib PATHS external/samplerate/lib /usr/local/lib)
+find_library(LSL NAMES liblsl.dylib PATHS external/lsl/lib /usr/local/lib)
 
 target_link_libraries(resampleaudio ${PORTAUDIO} ${RESAMPLE})
 target_link_libraries(resamplelsl ${PORTAUDIO} ${RESAMPLE} ${LSL})
