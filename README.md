@@ -14,8 +14,6 @@ This application makes use of [PortAudio](http://www.portaudio.com) and [Secret 
 
 ## resamplelsl
 
-**Note that the "resamplelsl" application is not finished yet.**
-
 This application takes an input LSL stream - for example from the Unicorn EEG system - and resamples/upsamples and streams it to another (virtual) output audio device.
 
 This application makes use of [PortAudio](http://www.portaudio.com), [libsamplerate (aka Secret Rabbit Code )](http://libsndfile.github.io/libsamplerate/) and [liblsl (aka LabStreamingLayer)](https://labstreaminglayer.readthedocs.io/projects/liblsl/).
