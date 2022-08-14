@@ -76,7 +76,7 @@ int resample_buffers(void)
 				{
 								printf("ERROR: src_process returned 0x%x\n", err );
 								printf("ERROR message: %s\n", src_strerror(err));
-								return err;
+								exit(err);
 				}
 
 				/* the output data buffer increased */
