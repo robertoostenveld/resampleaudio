@@ -15,17 +15,17 @@
 #include <string.h>
 
 #if defined __linux__ || defined __APPLE__
-//linux code goes here
+// Linux and macOS code goes here
 #include <unistd.h>
 #define min(x, y) (x<y ? x : y)
 #define max(x, y) (x>y ? x : y)
 
 #elif defined _WIN32
-// windows code goes here
+// Windows code goes here
 #define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
 
 #else
-#error Platform not supported
+#error Unsupported platform
 #endif
 
 #include "portaudio.h"
@@ -35,7 +35,7 @@
 #define STRLEN 80
 #define smooth(old, new, lambda) ((1.0-lambda)*(old) + (lambda)*(new))
 
-#define SAMPLE_TYPE   paFloat32
+#define SAMPLETYPE    paFloat32
 #define BLOCKSIZE     (0.01) // in seconds
 #define BUFFER        (2.00) // in seconds
 #define DEFAULTRATE   (44100.0)
@@ -123,7 +123,7 @@ int update_ratio(void)
         else
                 resampleRatio = smooth(resampleRatio, nominal, 10. * BLOCKSIZE);
 
-        printf("%lu\t%f\t%f\t%f\n", outputData.frames, nominal, estimate, resampleRatio);
+        //printf("%lu\t%f\t%f\t%f\n", outputData.frames, nominal, estimate, resampleRatio);
 
         return 0;
 }
@@ -217,6 +217,8 @@ int main(int argc, char* argv[]) {
 
         printf("PortAudio version: 0x%08X\n", Pa_GetVersion());
 
+        outputParameters.device = paNoDevice;
+
         /* Initialize library before making any other calls. */
         paErr = Pa_Initialize();
         if(paErr != paNoError)
@@ -227,7 +229,7 @@ int main(int argc, char* argv[]) {
         }
 
         numDevices = Pa_GetDeviceCount();
-        if(numDevices <= 0)
+        if (numDevices <= 0)
         {
                 printf("ERROR: No audio devices available.\n");
                 paErr = numDevices;
@@ -263,7 +265,7 @@ int main(int argc, char* argv[]) {
 
         outputParameters.device = outputDevice;
         outputParameters.channelCount = channelCount;
-        outputParameters.sampleFormat = SAMPLE_TYPE;
+        outputParameters.sampleFormat = SAMPLETYPE;
         outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultLowOutputLatency;
         outputParameters.hostApiSpecificStreamInfo = NULL;
 
@@ -335,13 +337,13 @@ int main(int argc, char* argv[]) {
         {
                 printf("ERROR: Cannot open input stream\n");
                 printf("ERROR: %s\n", lsl_last_error());
-                goto error2;
+                goto error4;
         }
 
         printf("Filling buffer...\n");
         timestampPrev = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
 
-        /* fill the input buffer halfway */
+        /* wait one second to fill the input buffer halfway */
         while (samplesReceived<inputBufsize/2)
         {
                 timestamp = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
@@ -349,7 +351,7 @@ int main(int argc, char* argv[]) {
                 {
                         printf("ERROR: Cannot pull sample.\n");
                         printf("ERROR: %s\n", lsl_last_error());
-                        goto error3;
+                        goto error4;
                 }
                 samplesReceived++;
 
@@ -358,7 +360,6 @@ int main(int argc, char* argv[]) {
                 memcpy(inputData.data + inputData.frames * channelCount, eegdata, len);
                 inputData.frames++;
         }
-
 
         printf("Nominal inputRate = %f\n", inputRate);
 
@@ -376,10 +377,10 @@ int main(int argc, char* argv[]) {
         {
                 printf("ERROR: Cannot set resampling ratio.\n");
                 printf("ERROR: %s\n", src_strerror(srcErr));
-                goto error3;
+                goto error4;
         }
 
-        printf("Receiving data...\n");
+        printf("Processing data...\n");
 
         enableResample = 1;
         enableUpdate = 1;
@@ -414,22 +415,32 @@ int main(int argc, char* argv[]) {
 
                 if ((samplesReceived % (unsigned long)lsl_get_nominal_srate(info)) == 0)
                 {
-                        //printf("inputRate = %8.4f\t", inputRate);
-                        //printf("resampleRatio = %8.4f\t", resampleRatio);
-                        //printf("inputData = %8lu\t", inputData.frames);
-                        //printf("outputData = %8lu\t", outputData.frames);
-                        //printf("\n");
+                        printf("inputRate = %8.4f\t", inputRate);
+                        printf("resampleRatio = %8.4f\t", resampleRatio);
+                        printf("inputData = %8lu\t", inputData.frames);
+                        printf("outputData = %8lu\t", outputData.frames);
+                        printf("\n");
                 }
         }
 
+error4:
+        lsl_destroy_inlet(inlet);\
 
 error3:
-        lsl_destroy_inlet(inlet);
+        if (resampleState)
+                src_delete (resampleState);
 
 error2:
         if (eegdata)
                 free(eegdata);
 
 error1:
+        Pa_Terminate();
+
+        if (srcErr)
+                printf("Samplerate error number: %d\n", srcErr);
+        if (paErr)
+                printf("PortAudio error number: %d\n", paErr);
+        printf("Finished.");
         return lslErr;
 }
