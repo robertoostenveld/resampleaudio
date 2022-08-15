@@ -255,13 +255,13 @@ int main(int argc, char* argv[]) {
 
         printf("Output sampling rate [%.0f]: ", DEFAULTRATE);
         fgets(line, STRLEN, stdin);
-				if (strlen(line)==1)
-								outputRate = DEFAULTRATE;
-				else
-        				outputRate = atof(line);
-								
-				printf("outputDevice = %d\n", outputDevice);
-				printf("outputRate = %f\n", outputRate);
+        if (strlen(line)==1)
+                outputRate = DEFAULTRATE;
+        else
+                outputRate = atof(line);
+
+        printf("outputDevice = %d\n", outputDevice);
+        printf("outputRate = %f\n", outputRate);
 
         outputParameters.device = outputDevice;
         outputParameters.channelCount = channelCount;
@@ -424,7 +424,7 @@ int main(int argc, char* argv[]) {
         }
 
 error4:
-        lsl_destroy_inlet(inlet);\
+        lsl_destroy_inlet(inlet); \
 
 error3:
         if (resampleState)
