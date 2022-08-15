@@ -33,21 +33,23 @@
 #include "lsl_c.h"
 
 #define STRLEN 80
-#define smooth(old, new, lambda) ((1.0-lambda)*old + lambda*new)
+#define smooth(old, new, lambda) ((1.0-lambda)*(old) + (lambda)*(new))
 
 #define SAMPLE_TYPE   paFloat32
 #define BLOCKSIZE     (0.01) // in seconds
 #define BUFFER        (2.00) // in seconds
+#define DEFAULTRATE   (44100.0)
 
 typedef struct {
-				float *data;
-				unsigned long frames;
+        float *data;
+        unsigned long frames;
 } dataBuffer_t;
 
 dataBuffer_t inputData, outputData;
 
 SRC_STATE* resampleState = NULL;
 SRC_DATA resampleData;
+int srcErr;
 
 float inputRate, outputRate, resampleRatio;
 short enableResample = 0, enableUpdate = 0, keepRunning = 1;
@@ -56,318 +58,324 @@ int channelCount, inputBlocksize, outputBlocksize, inputBufsize, outputBufsize;
 /*******************************************************************************************************/
 int resample_buffers(void)
 {
-				resampleData.src_ratio      = resampleRatio;
-				resampleData.end_of_input   = 0;
-				resampleData.data_in        = inputData.data;
-				resampleData.input_frames   = inputData.frames;
-				resampleData.data_out       = outputData.data + outputData.frames * channelCount;
-				resampleData.output_frames  = outputBufsize - outputData.frames;
+        resampleData.src_ratio      = resampleRatio;
+        resampleData.end_of_input   = 0;
+        resampleData.data_in                            = inputData.data;
+        resampleData.input_frames   = inputData.frames;
+        resampleData.data_out       = outputData.data + outputData.frames * channelCount;
+        resampleData.output_frames  = outputBufsize - outputData.frames;
 
-				/* check whether there is data in the input buffer */
-				if (inputData.frames==0)
-								return 0;
+        /* check whether there is data in the input buffer */
+        if (inputData.frames==0)
+                return 0;
 
-				/* check whether there is room for new data in the output buffer */
-				if (outputData.frames==outputBufsize)
-								return 0;
+        /* check whether there is room for new data in the output buffer */
+        if (outputData.frames==outputBufsize)
+                return 0;
 
-				int paErr = src_process (resampleState, &resampleData);
-				if (paErr)
-				{
-								printf("ERROR: src_process returned 0x%x\n", paErr );
-								printf("ERROR message: %s\n", src_strerror(paErr));
-								exit(paErr);
-				}
-        
-				/* the output data buffer increased */
-				outputData.frames += resampleData.output_frames_gen;
 
-				/* the input data buffer decreased */
-				size_t len = (inputData.frames - resampleData.input_frames_used) * channelCount * sizeof(float);
-				memcpy(inputData.data, inputData.data + resampleData.input_frames_used * channelCount, len);
-				inputData.frames -= resampleData.input_frames_used;
+        int srcErr = src_process (resampleState, &resampleData);
+        if (srcErr)
+        {
+                printf("ERROR: Cannot resample the input data\n");
+                printf("ERROR: %s\n", src_strerror(srcErr));
+                exit(srcErr);
+        }
 
-				return 0;
+        /* the output data buffer increased */
+        outputData.frames += resampleData.output_frames_gen;
+
+        /* the input data buffer decreased */
+        size_t len = (inputData.frames - resampleData.input_frames_used) * channelCount * sizeof(float);
+        memcpy(inputData.data, inputData.data + resampleData.input_frames_used * channelCount, len);
+        inputData.frames -= resampleData.input_frames_used;
+
+        return 0;
 }
 
 /*******************************************************************************************************/
 int update_ratio(void)
 {
-				float nominal = (float)outputRate/inputRate;
-				float estimate = nominal + (0.5*outputBufsize - outputData.frames) / outputBlocksize;
+        float nominal = (float)outputRate/inputRate;
+        float estimate = nominal + (0.5*outputBufsize - outputData.frames) / outputBlocksize;
 
-				/* do not change the ratio by too much */
-				estimate = min(estimate, 1.2*nominal);
-				estimate = max(estimate, 0.8*nominal);
+        /* do not change the ratio by too much */
+        estimate = min(estimate, 1.2*nominal);
+        estimate = max(estimate, 0.8*nominal);
 
-				/* allow some variation of the target buffer size */
-				/* it should fall between the lower and upper range */
+        /* allow some variation of the target buffer size */
+        /* it should fall between the lower and upper range */
         float verylow   = (0.40*outputBufsize);
-				float low       = (0.48*outputBufsize);
+        float low       = (0.48*outputBufsize);
         float high      = (0.52*outputBufsize);
-				float veryhigh  = (0.60*outputBufsize);
+        float veryhigh  = (0.60*outputBufsize);
 
+        /* this is called every 0.01 seconds, hence lambda=1.0*BLOCKSIZE implements a 1 second smoothing
+           and 10*BLOCKSIZE implements a 0.1 second smoothing */
         if (outputData.frames<verylow)
-                resampleRatio = smooth(resampleRatio, estimate, 0.1);
+                resampleRatio = smooth(resampleRatio, estimate, 10. * BLOCKSIZE);
         else if (outputData.frames<low)
-								resampleRatio = smooth(resampleRatio, estimate, 0.01);
+                resampleRatio = smooth(resampleRatio, estimate, 1. * BLOCKSIZE);
         else if (outputData.frames>high)
-              resampleRatio = smooth(resampleRatio, estimate, 0.01);
+                resampleRatio = smooth(resampleRatio, estimate, 1. * BLOCKSIZE);
         else if (outputData.frames>veryhigh)
-							resampleRatio = smooth(resampleRatio, estimate, 0.1);
-				else
-							resampleRatio = smooth(resampleRatio, nominal, 0.1);
+                resampleRatio = smooth(resampleRatio, estimate, 10. * BLOCKSIZE);
+        else
+                resampleRatio = smooth(resampleRatio, nominal, 10. * BLOCKSIZE);
 
-				// printf("%lu\t%f\t%f\t%f\n", outputData.frames, nominal, estimate, resampleRatio);
+        printf("%lu\t%f\t%f\t%f\n", outputData.frames, nominal, estimate, resampleRatio);
 
-				return 0;
+        return 0;
 }
 
 /*******************************************************************************************************/
-static int output_callback( const void *input,
-                            void *output,
-                            unsigned long frameCount,
-                            const PaStreamCallbackTimeInfo* timeInfo,
-                            PaStreamCallbackFlags statusFlags,
-                            void *userData )
+static int output_callback(const void *input,
+                           void *output,
+                           unsigned long frameCount,
+                           const PaStreamCallbackTimeInfo* timeInfo,
+                           PaStreamCallbackFlags statusFlags,
+                           void *userData)
 {
-				float *data = (float *)output;
-				dataBuffer_t *outputData = (dataBuffer_t *)userData;
-				unsigned int newFrames = min(frameCount, outputData->frames);
+        float *data = (float *)output;
+        dataBuffer_t *outputData = (dataBuffer_t *)userData;
+        unsigned int newFrames = min(frameCount, outputData->frames);
 
-				size_t len = newFrames * channelCount * sizeof(float);
-				memcpy(data, outputData->data, len);
+        size_t len = newFrames * channelCount * sizeof(float);
+        memcpy(data, outputData->data, len);
 
-				len = (frameCount - newFrames) * channelCount * sizeof(float);
-				bzero(data + newFrames * channelCount, len);
+        len = (frameCount - newFrames) * channelCount * sizeof(float);
+        bzero(data + newFrames * channelCount, len);
 
-				len = (outputData->frames - newFrames) * channelCount * sizeof(float);
-				memcpy(outputData->data, outputData->data + newFrames * channelCount, len);
+        len = (outputData->frames - newFrames) * channelCount * sizeof(float);
+        memcpy(outputData->data, outputData->data + newFrames * channelCount, len);
 
-				outputData->frames -= newFrames;
+        outputData->frames -= newFrames;
 
-				if (enableResample)
-								resample_buffers();
+        if (enableResample)
+                resample_buffers();
 
         if (enableUpdate)
-								update_ratio();
+                update_ratio();
 
-				return 0;
+        return 0;
 }
 
 /*******************************************************************************************************/
 void stream_finished(void *userData)
 {
-				keepRunning = 0;
-				return;
+        keepRunning = 0;
+        return;
 }
 
 /*******************************************************************************************************/
 int main(int argc, char* argv[]) {
-				char line[STRLEN];
+        char line[STRLEN];
 
-				/* variables that are specific for PortAudio */
-				unsigned int outputDevice;
-				PaStream *outputStream;
-				PaStreamParameters outputParameters;
-				PaError paErr = paNoError;
-				unsigned int numDevices;
-				const PaDeviceInfo *deviceInfo;
+        /* variables that are specific for PortAudio */
+        unsigned int outputDevice;
+        PaStream *outputStream;
+        PaStreamParameters outputParameters;
+        PaError paErr = paNoError;
+        unsigned int numDevices;
+        const PaDeviceInfo *deviceInfo;
 
-				/* variables that are specific for LSL */
-				lsl_streaminfo info;
-				lsl_inlet inlet;
-				int lslErr = 0;
-				float *eegdata = NULL;
-				double timestamp, timestamp0;
+        /* variables that are specific for LSL */
+        lsl_streaminfo info;
+        lsl_inlet inlet;
+        int lslErr = 0;
+        float *eegdata = NULL;
+        double timestamp, timestampPrev, timestampPerSample;
         unsigned long samplesReceived = 0;
         const char *type, *name;
 
-				/* STAGE 1: Initialize the EEG input and audio output. */
+        /* STAGE 1: Initialize the EEG input and audio output. */
 
-				printf("LSL version: %s\n", lsl_library_info());
+        printf("LSL version: %s\n", lsl_library_info());
+        printf("Waiting for an LSL stream of type EEG...\n");
+        lsl_resolve_byprop(&info, 1, "type", "EEG", 1, LSL_FOREVER);
 
-				printf("Waiting for an LSL stream of type EEG...\n");
-				lsl_resolve_byprop(&info, 1, "type", "EEG", 1, LSL_FOREVER);
-
-				type = lsl_get_type(info);
-				name = lsl_get_name(info);
+        type = lsl_get_type(info);
+        name = lsl_get_name(info);
         /* the channelCount and inputRate are global variables */
-				channelCount = lsl_get_channel_count(info);
-				inputRate = lsl_get_nominal_srate(info);
+        channelCount = lsl_get_channel_count(info);
+        inputRate = lsl_get_nominal_srate(info);
 
-				printf("type         = %s\n", type);
-				printf("name         = %s\n", name);
-				printf("channelCount = %d\n", channelCount);
-				printf("inputRate    = %f\n", inputRate);
+        printf("type         = %s\n", type);
+        printf("name         = %s\n", name);
+        printf("channelCount = %d\n", channelCount);
+        printf("inputRate    = %f\n", inputRate);
 
-				inputBufsize = BUFFER * inputRate;
-				inputBlocksize = 1;
+        inputBufsize = BUFFER * inputRate;
+        inputBlocksize = 1;
 
-				eegdata = malloc(channelCount * sizeof(float));
-				if (eegdata == NULL)
-				{
-								printf("ERROR: malloc()");
-								goto error1;
-				}
+        eegdata = malloc(channelCount * sizeof(float));
+        if (eegdata == NULL)
+        {
+                printf("ERROR: Cannot allocate memory.");
+                goto error1;
+        }
 
-				outputParameters.device = paNoDevice;
+        printf("PortAudio version: 0x%08X\n", Pa_GetVersion());
 
-				paErr = Pa_Initialize();
-				if( paErr != paNoError )
-				{
-								printf("ERROR: Pa_Initialize returned 0x%x\n", paErr );
-								printf("ERROR message: %s\n", Pa_GetErrorText( paErr ) );
-								goto error1;
-				}
+        /* Initialize library before making any other calls. */
+        paErr = Pa_Initialize();
+        if(paErr != paNoError)
+        {
+                printf("ERROR: Cannot initialize PortAudio.\n");
+                printf("ERROR: %s\n", Pa_GetErrorText(paErr));
+                goto error1;
+        }
 
-				printf("PortAudio version: 0x%08X\n", Pa_GetVersion());
+        numDevices = Pa_GetDeviceCount();
+        if(numDevices <= 0)
+        {
+                printf("ERROR: No audio devices available.\n");
+                paErr = numDevices;
+                goto error1;
+        }
 
-				/* Initialize library before making any other calls. */
-				paErr = Pa_Initialize();
-				if( paErr != paNoError )
-				{
-								printf("ERROR: Cannot initialize PortAudio.\n");
-								printf("ERROR message: %s\n", Pa_GetErrorText( paErr ) );
-								goto error1;
-				}
+        printf("Number of devices = %d\n", numDevices);
+        for(int i=0; i<numDevices; i++)
+        {
+                deviceInfo = Pa_GetDeviceInfo(i);
+                printf("device %d %s (%d in, %d out)\n", i,
+                       deviceInfo->name,
+                       deviceInfo->maxInputChannels,
+                       deviceInfo->maxOutputChannels);
+        }
 
-				numDevices = Pa_GetDeviceCount();
-				if( numDevices < 0 )
-				{
-								printf("ERROR: Pa_GetDeviceCount returned 0x%x\n", numDevices );
-								printf("ERROR message: %s\n", Pa_GetErrorText( paErr ) );
-								paErr = numDevices;
-								goto error1;
-				}
+        printf("Select output device [%d]: ", Pa_GetDefaultOutputDevice());
+        fgets(line, STRLEN, stdin);
+        if (strlen(line)==1)
+                outputDevice = Pa_GetDefaultOutputDevice();
+        else
+                outputDevice = atoi(line);
 
-				printf("Number of devices = %d\n", numDevices );
-				for( int i=0; i<numDevices; i++ )
-				{
-								deviceInfo = Pa_GetDeviceInfo( i );
-								printf("device %d %s (%d in, %d out)\n", i,
-								       deviceInfo->name,
-								       deviceInfo->maxInputChannels,
-								       deviceInfo->maxOutputChannels  );
-				}
-
-				printf("Select output device: ");
-				fgets(line, STRLEN, stdin);
-				outputDevice = atoi(line);
-
-				printf("Output sampling rate: ");
-				fgets(line, STRLEN, stdin);
-				outputRate = atof(line);
-
-				outputParameters.device = outputDevice;
-				outputParameters.channelCount = channelCount;
-				outputParameters.sampleFormat = SAMPLE_TYPE;
-				outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
-				outputParameters.hostApiSpecificStreamInfo = NULL;
-
-				outputBufsize = BUFFER * outputRate;
-				outputBlocksize = BLOCKSIZE * outputRate;
-
-				paErr = Pa_OpenStream(
-								&outputStream,
-								NULL,
-								&outputParameters,
-								outputRate,
-								outputBlocksize,
-								paClipOff,
-								output_callback,
-								&outputData );
-				if( paErr != paNoError )
-				{
-								printf("ERROR: Cannot open output stream.\n");
-								printf("ERROR message: %s\n", Pa_GetErrorText( paErr ) );
-								goto error1;
-				}
-
-				printf("Opened output stream with %d channels at %.0f Hz.\n", channelCount, outputRate);
-				Pa_SetStreamFinishedCallback(&outputStream, stream_finished);
-
-				/* STAGE 2: Initialize the inputData and outputData for use by the callbacks. */
-
-				inputData.frames = 0;
-				inputData.data = NULL;
-				if ((inputData.data = malloc(inputBufsize * channelCount * sizeof(float))) == NULL)
-								goto error2;
+        printf("Output sampling rate [%.0f]: ", DEFAULTRATE);
+        fgets(line, STRLEN, stdin);
+				if (strlen(line)==1)
+								outputRate = DEFAULTRATE;
 				else
-								bzero(inputData.data, inputBufsize * channelCount * sizeof(float));
+        				outputRate = atof(line);
+								
+				printf("outputDevice = %d\n", outputDevice);
+				printf("outputRate = %f\n", outputRate);
 
-				outputData.frames = 0;
-				outputData.data = NULL;
-				if ((outputData.data = malloc(outputBufsize * channelCount * sizeof(float))) == NULL)
-								goto error2;
-				else
-								bzero(outputData.data, outputBufsize * channelCount * sizeof(float));
+        outputParameters.device = outputDevice;
+        outputParameters.channelCount = channelCount;
+        outputParameters.sampleFormat = SAMPLE_TYPE;
+        outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultLowOutputLatency;
+        outputParameters.hostApiSpecificStreamInfo = NULL;
 
-				/* STAGE 3: Initialize the resampling. */
+        outputBufsize = BUFFER * outputRate;
+        outputBlocksize = BLOCKSIZE * outputRate;
 
-				printf("Setting up %s rate converter with %s\n",
-				       src_get_name (SRC_SINC_MEDIUM_QUALITY),
-				       src_get_description (SRC_SINC_MEDIUM_QUALITY));
+        paErr = Pa_OpenStream(
+                &outputStream,
+                NULL,
+                &outputParameters,
+                outputRate,
+                outputBlocksize,
+                paClipOff,
+                output_callback,
+                &outputData);
+        if(paErr != paNoError)
+        {
+                printf("ERROR: Cannot open output stream.\n");
+                printf("ERROR: %s\n", Pa_GetErrorText(paErr));
+                goto error1;
+        }
 
-				resampleState = src_new (SRC_SINC_MEDIUM_QUALITY, channelCount, &paErr);
-				if (resampleState == NULL)
-				{
-								printf("ERROR: src_new returned 0x%x\n", paErr );
-								printf("ERROR message: %s\n", src_strerror(paErr));
-								goto error3;
-				}
+        printf("Opened output stream with %d channels at %.0f Hz.\n", channelCount, outputRate);
+        Pa_SetStreamFinishedCallback(&outputStream, stream_finished);
 
-				/* STAGE 4: Start the streams. */
+        /* STAGE 2: Initialize the inputData and outputData for use by the callbacks. */
 
-				paErr = Pa_StartStream( outputStream );
-				if( paErr != paNoError )
-				{
-								printf("ERROR: Cannot start output stream.\n");
-								printf("ERROR message: %s\n", Pa_GetErrorText( paErr ) );
-								goto error3;
-				}
+        inputData.frames = 0;
+        inputData.data = NULL;
+        if ((inputData.data = malloc(inputBufsize * channelCount * sizeof(float))) == NULL)
+                goto error2;
+        else
+                bzero(inputData.data, inputBufsize * channelCount * sizeof(float));
 
-				inlet = lsl_create_inlet(info, 30, LSL_NO_PREFERENCE, 1);
-				lsl_open_stream(inlet, LSL_FOREVER, &lslErr);
-				if (lslErr != 0)
-				{
-								printf("%s\n", lsl_last_error());
-								goto error2;
-				}
+        outputData.frames = 0;
+        outputData.data = NULL;
+        if ((outputData.data = malloc(outputBufsize * channelCount * sizeof(float))) == NULL)
+                goto error2;
+        else
+                bzero(outputData.data, outputBufsize * channelCount * sizeof(float));
+
+        /* STAGE 3: Initialize the resampling. */
+
+        printf("Setting up %s rate converter with %s\n",
+               src_get_name (SRC_SINC_MEDIUM_QUALITY),
+               src_get_description (SRC_SINC_MEDIUM_QUALITY));
+
+        resampleState = src_new (SRC_SINC_MEDIUM_QUALITY, channelCount, &srcErr);
+        if (resampleState == NULL)
+        {
+                printf("ERROR: Cannot set up resample state.\n");
+                printf("ERROR: %s\n", src_strerror(srcErr));
+                goto error3;
+        }
+
+        /* STAGE 4: Start the streams. */
+
+        paErr = Pa_StartStream(outputStream);
+        if(paErr != paNoError)
+        {
+                printf("ERROR: Cannot start output stream.\n");
+                printf("ERROR: %s\n", Pa_GetErrorText(paErr));
+                goto error3;
+        }
+
+        inlet = lsl_create_inlet(info, 30, LSL_NO_PREFERENCE, 1);
+        lsl_open_stream(inlet, LSL_FOREVER, &lslErr);
+        if (lslErr != 0)
+        {
+                printf("ERROR: Cannot open input stream\n");
+                printf("ERROR: %s\n", lsl_last_error());
+                goto error2;
+        }
 
         printf("Filling buffer...\n");
-        timestamp0 = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
+        timestampPrev = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
 
         /* fill the input buffer halfway */
         while (samplesReceived<inputBufsize/2)
         {
-          timestamp = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
-          if (lslErr != 0)
-          {
-                  printf("%s\n", lsl_last_error());
-                  goto error3;
-          }
-          samplesReceived++;
+                timestamp = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
+                if (lslErr != 0)
+                {
+                        printf("ERROR: Cannot pull sample.\n");
+                        printf("ERROR: %s\n", lsl_last_error());
+                        goto error3;
+                }
+                samplesReceived++;
 
-          /* add the data to the input buffer and increment the frame counter */
-          size_t len = channelCount * sizeof(float);
-          memcpy(inputData.data + inputData.frames * channelCount, eegdata, len);
-          inputData.frames++;
+                /* add the data to the input buffer and increment the frame counter */
+                size_t len = channelCount * sizeof(float);
+                memcpy(inputData.data + inputData.frames * channelCount, eegdata, len);
+                inputData.frames++;
         }
 
+
+        printf("Nominal inputRate = %f\n", inputRate);
+
         /* estimate the input sample rate */
-        inputRate = (float)samplesReceived/(timestamp - timestamp0);
+        timestampPerSample = (timestamp - timestampPrev)/samplesReceived;
+        inputRate = 1.0/timestampPerSample;
         printf("Estimated inputRate = %f\n", inputRate);
-        timestamp0 = timestamp;
-        
+        timestampPrev = timestamp;
+
         resampleRatio = outputRate / inputRate;
         printf("Initial resampleRatio = %f\n", resampleRatio);
 
-        paErr = src_set_ratio (resampleState, resampleRatio);
-        if (paErr)
+        srcErr = src_set_ratio (resampleState, resampleRatio);
+        if (srcErr)
         {
-                printf("ERROR: src_set_ratio returned 0x%x\n", paErr );
-                printf("ERROR message: %s\n", src_strerror(paErr));
+                printf("ERROR: Cannot set resampling ratio.\n");
+                printf("ERROR: %s\n", src_strerror(srcErr));
                 goto error3;
         }
 
@@ -375,51 +383,53 @@ int main(int argc, char* argv[]) {
 
         enableResample = 1;
         enableUpdate = 1;
-        
-				while (1)
-				{
-								timestamp = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
-								if (lslErr != 0)
-								{
-												printf("%s\n", lsl_last_error());
-												goto error3;
-								}
+
+        while (1)
+        {
+                timestamp = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
+                if (lslErr != 0)
+                {
+                        printf("ERROR: Cannot pull sample.\n");
+                        printf("ERROR: %s\n", lsl_last_error());
+                        goto error3;
+                }
                 samplesReceived++;
 
-								if (inputData.frames == inputBufsize) {
-												/* input buffer overrun, drop the oldest sample */
-												size_t len = (inputData.frames - 1) * channelCount * sizeof(float);
-												memcpy(inputData.data, inputData.data + 1 * channelCount, len);
-												inputData.frames--;
-								}
+                /* update the estimated input sample rate, smooth over 100 seconds */
+                timestampPerSample = smooth(timestampPerSample, timestamp - timestampPrev, 0.01/lsl_get_nominal_srate(info));
+                timestampPrev = timestamp;
+                inputRate = 1.0/timestampPerSample;
 
-								/* add the current sample to the input buffer and increment the counter */
-								size_t len = channelCount * sizeof(float);
-								memcpy(inputData.data + inputData.frames * channelCount, eegdata, len);
-								inputData.frames++;
-                
-                /* update the estimated input sample rate, smooth over 1000 seconds */
-                inputRate = smooth(inputRate, 1.0/(timestamp - timestamp0), 0.001/lsl_get_nominal_srate(info));
-                timestamp0 = timestamp;
+                if (inputData.frames == inputBufsize) {
+                        /* input buffer overrun, drop the oldest sample */
+                        size_t len = (inputData.frames - 1) * channelCount * sizeof(float);
+                        memcpy(inputData.data, inputData.data + 1 * channelCount, len);
+                        inputData.frames--;
+                }
+
+                /* add the current sample to the input buffer and increment the counter */
+                size_t len = channelCount * sizeof(float);
+                memcpy(inputData.data + inputData.frames * channelCount, eegdata, len);
+                inputData.frames++;
 
                 if ((samplesReceived % (unsigned long)lsl_get_nominal_srate(info)) == 0)
                 {
-                    printf("inputRate = %8.2f\t", inputRate);
-                    printf("resampleRatio = %8.2f\t", resampleRatio);
-                    printf("inputData = %8lu\t", inputData.frames);
-                    printf("outputData = %8lu\t", outputData.frames);
-                    printf("\n");
+                        //printf("inputRate = %8.4f\t", inputRate);
+                        //printf("resampleRatio = %8.4f\t", resampleRatio);
+                        //printf("inputData = %8lu\t", inputData.frames);
+                        //printf("outputData = %8lu\t", outputData.frames);
+                        //printf("\n");
                 }
-				}
+        }
 
 
 error3:
-				lsl_destroy_inlet(inlet);
+        lsl_destroy_inlet(inlet);
 
 error2:
-				if (eegdata)
-								free(eegdata);
+        if (eegdata)
+                free(eegdata);
 
 error1:
-				return lslErr;
+        return lslErr;
 }
