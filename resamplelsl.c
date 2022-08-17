@@ -54,13 +54,14 @@ int srcErr;
 float inputRate, outputRate, resampleRatio;
 short enableResample = 0, enableUpdate = 0, keepRunning = 1;
 int channelCount, inputBlocksize, outputBlocksize, inputBufsize, outputBufsize;
+float outputLimit = 1.;
 
 /*******************************************************************************************************/
 int resample_buffers(void)
 {
         resampleData.src_ratio      = resampleRatio;
         resampleData.end_of_input   = 0;
-        resampleData.data_in                            = inputData.data;
+        resampleData.data_in        = inputData.data;
         resampleData.input_frames   = inputData.frames;
         resampleData.data_out       = outputData.data + outputData.frames * channelCount;
         resampleData.output_frames  = outputBufsize - outputData.frames;
@@ -151,13 +152,16 @@ static int output_callback(const void *input,
 
         outputData->frames -= newFrames;
 
+        for (unsigned int i = 0; i < (newFrames * channelCount); i++)
+            outputLimit = max(outputLimit, abs(data[i]));
+
         if (enableResample)
                 resample_buffers();
 
         if (enableUpdate)
                 update_ratio();
 
-        return 0;
+        return paContinue;
 }
 
 /*******************************************************************************************************/
@@ -196,6 +200,7 @@ int main(int argc, char* argv[]) {
 
         type = lsl_get_type(info);
         name = lsl_get_name(info);
+
         /* the channelCount and inputRate are global variables */
         channelCount = lsl_get_channel_count(info);
         inputRate = lsl_get_nominal_srate(info);
@@ -236,16 +241,23 @@ int main(int argc, char* argv[]) {
                 goto error1;
         }
 
+        printf("Number of host APIs = %d\n", Pa_GetHostApiCount());
         printf("Number of devices = %d\n", numDevices);
-        for(int i=0; i<numDevices; i++)
+        for (int i = 0; i < numDevices; i++)
         {
-                deviceInfo = Pa_GetDeviceInfo(i);
-                printf("device %d %s (%d in, %d out)\n", i,
-                       deviceInfo->name,
-                       deviceInfo->maxInputChannels,
-                       deviceInfo->maxOutputChannels);
+            deviceInfo = Pa_GetDeviceInfo(i);
+            if (Pa_GetHostApiCount() == 1)
+                printf("device %2d - %s (%d in, %d out)\n", i,
+                    deviceInfo->name,
+                    deviceInfo->maxInputChannels,
+                    deviceInfo->maxOutputChannels);
+            else
+                printf("device %2d - %s - %s (%d in, %d out)\n", i,
+                    Pa_GetHostApiInfo(deviceInfo->hostApi)->name,
+                    deviceInfo->name,
+                    deviceInfo->maxInputChannels,
+                    deviceInfo->maxOutputChannels);
         }
-
         printf("Select output device [%d]: ", Pa_GetDefaultOutputDevice());
         fgets(line, STRLEN, stdin);
         if (strlen(line)==1)
@@ -260,8 +272,17 @@ int main(int argc, char* argv[]) {
         else
                 outputRate = atof(line);
 
+        deviceInfo = Pa_GetDeviceInfo(outputDevice);
+        printf("Number of channels [%d]: ", min(channelCount, deviceInfo->maxOutputChannels));
+        fgets(line, STRLEN, stdin);
+        if (strlen(line) == 1)
+            channelCount = min(channelCount, deviceInfo->maxOutputChannels);
+        else
+            channelCount = min(channelCount, atoi(line));
+
         printf("outputDevice = %d\n", outputDevice);
         printf("outputRate = %f\n", outputRate);
+        printf("channelCount = %d\n", channelCount);
 
         outputParameters.device = outputDevice;
         outputParameters.channelCount = channelCount;
@@ -278,7 +299,7 @@ int main(int argc, char* argv[]) {
                 &outputParameters,
                 outputRate,
                 outputBlocksize,
-                paClipOff,
+                paNoFlag,
                 output_callback,
                 &outputData);
         if(paErr != paNoError)
@@ -341,12 +362,12 @@ int main(int argc, char* argv[]) {
         }
 
         printf("Filling buffer...\n");
-        timestampPrev = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
+        timestampPrev = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info), LSL_FOREVER, &lslErr);
 
         /* wait one second to fill the input buffer halfway */
         while (samplesReceived<inputBufsize/2)
         {
-                timestamp = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
+                timestamp = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info), LSL_FOREVER, &lslErr);
                 if (lslErr != 0)
                 {
                         printf("ERROR: Cannot pull sample.\n");
@@ -355,9 +376,12 @@ int main(int argc, char* argv[]) {
                 }
                 samplesReceived++;
 
-                /* add the data to the input buffer and increment the frame counter */
-                size_t len = channelCount * sizeof(float);
-                memcpy(inputData.data + inputData.frames * channelCount, eegdata, len);
+                /* add the current sample to the input buffer and increment the counter */
+                for (unsigned int i = 0; i < channelCount; i++)
+                {
+                    outputLimit = max(outputLimit, abs(eegdata[i]));
+                    inputData.data[inputData.frames * channelCount + i] = eegdata[i] / outputLimit;
+                }
                 inputData.frames++;
         }
 
@@ -387,7 +411,7 @@ int main(int argc, char* argv[]) {
 
         while (1)
         {
-                timestamp = lsl_pull_sample_f(inlet, eegdata, channelCount, LSL_FOREVER, &lslErr);
+                timestamp = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info), LSL_FOREVER, &lslErr);
                 if (lslErr != 0)
                 {
                         printf("ERROR: Cannot pull sample.\n");
@@ -409,16 +433,20 @@ int main(int argc, char* argv[]) {
                 }
 
                 /* add the current sample to the input buffer and increment the counter */
-                size_t len = channelCount * sizeof(float);
-                memcpy(inputData.data + inputData.frames * channelCount, eegdata, len);
+                for (unsigned int i = 0; i < channelCount; i++)
+                {
+                    outputLimit = max(outputLimit, abs(eegdata[i]));
+                    inputData.data[inputData.frames * channelCount + i] = eegdata[i] / outputLimit;
+                }
                 inputData.frames++;
 
                 if ((samplesReceived % (unsigned long)lsl_get_nominal_srate(info)) == 0)
                 {
-                        printf("inputRate = %8.4f\t", inputRate);
-                        printf("resampleRatio = %8.4f\t", resampleRatio);
-                        printf("inputData = %8lu\t", inputData.frames);
-                        printf("outputData = %8lu\t", outputData.frames);
+                        printf("inputRate = %8.4f, ", inputRate);
+                        printf("resampleRatio = %8.4f, ", resampleRatio);
+                        printf("outputLimit = %8.4f, ", outputLimit);
+                        printf("inputData = %4lu, ", inputData.frames);
+                        printf("outputData = %6lu", outputData.frames);
                         printf("\n");
                 }
         }
