@@ -141,7 +141,7 @@ static int input_callback( const void *input,
         if (enableUpdate)
                 update_ratio();
 
-        return 0;
+        return paContinue;
 }
 
 /*******************************************************************************************************/
@@ -167,7 +167,7 @@ static int output_callback( const void *input,
 
         outputData->frames -= newFrames;
 
-        return 0;
+        return paContinue;
 }
 
 /*******************************************************************************************************/
@@ -213,15 +213,22 @@ int main(int argc, char *argv[]) {
                 goto error1;
         }
 
+        printf("Number of host APIs = %d\n", Pa_GetHostApiCount());
         printf("Number of devices = %d\n", numDevices);
         for( int i=0; i<numDevices; i++ )
         {
                 deviceInfo = Pa_GetDeviceInfo( i );
-                // Pa_GetDefaultOutputDevice
-                printf("device %d %s (%d in, %d out)\n", i,
-                       deviceInfo->name,
-                       deviceInfo->maxInputChannels,
-                       deviceInfo->maxOutputChannels  );
+                if (Pa_GetHostApiCount()==1)
+                    printf("device %2d - %s (%d in, %d out)\n", i,
+                            deviceInfo->name,
+                            deviceInfo->maxInputChannels,
+                            deviceInfo->maxOutputChannels  );
+                else
+                    printf("device %2d - %s - %s (%d in, %d out)\n", i,
+                        Pa_GetHostApiInfo(deviceInfo->hostApi)->name,
+                        deviceInfo->name,
+                        deviceInfo->maxInputChannels,
+                        deviceInfo->maxOutputChannels);
         }
 
         printf("Select input device [%d]: ", Pa_GetDefaultInputDevice());
@@ -260,7 +267,7 @@ int main(int argc, char *argv[]) {
                 NULL,
                 inputRate,
                 inputBlocksize,
-                0,
+                paNoFlag,
                 input_callback,
                 &inputData );
         if( paErr != paNoError )
@@ -287,7 +294,6 @@ int main(int argc, char *argv[]) {
         else
                 outputRate = atof(line);
 
-
         outputParameters.device = outputDevice;
         outputParameters.channelCount = channelCount;
         outputParameters.sampleFormat = SAMPLETYPE;
@@ -303,7 +309,7 @@ int main(int argc, char *argv[]) {
                 &outputParameters,
                 outputRate,
                 outputBlocksize,
-                paClipOff,
+                paNoFlag,
                 output_callback,
                 &outputData );
         if( paErr != paNoError )
