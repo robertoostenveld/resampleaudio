@@ -26,7 +26,7 @@ endif()
 # use static libraries where possible to facilitate distribution of the executable
 find_library(PORTAUDIO NAMES libportaudio.a portaudio.lib portaudio_static_x64.lib portaudio_x64.lib PATHS external/portaudio/lib /usr/local/lib)
 find_library(RESAMPLE NAMES libsamplerate.a samplerate.lib PATHS external/samplerate/lib /usr/local/lib)
-find_library(LSL NAMES liblsl.dylib PATHS external/lsl/lib /usr/local/lib)
+find_library(LSL NAMES liblsl.dylib lsl.lib PATHS external/lsl/lib /usr/local/lib)
 
 target_link_libraries(resampleaudio ${PORTAUDIO} ${RESAMPLE})
 target_link_libraries(resamplelsl ${PORTAUDIO} ${RESAMPLE} ${LSL})
