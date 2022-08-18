@@ -34,7 +34,6 @@
 #define BLOCKSIZE           (0.01) // in seconds
 #define BUFFER              (2.00) // in seconds
 #define DEFAULTRATE         (44100.0)
-#define DEFAULTCHANNELCOUNT (2)
 
 typedef struct {
         float *data;
@@ -240,12 +239,13 @@ int main(int argc, char *argv[]) {
         else
                 inputRate = atof(line);
 
-        printf("Number of channels [%d]: ", DEFAULTCHANNELCOUNT);
+        deviceInfo = Pa_GetDeviceInfo(inputDevice);
+        printf("Number of channels [%d]: ", deviceInfo->maxInputChannels);
         fgets(line, STRLEN, stdin);
-        if (strlen(line)==1)
-                channelCount = DEFAULTCHANNELCOUNT;
+        if (strlen(line) == 1)
+            channelCount = deviceInfo->maxInputChannels;
         else
-                channelCount = atof(line);
+            channelCount = atoi(line);
 
         inputParameters.device = inputDevice;
         inputParameters.channelCount = channelCount;
@@ -391,10 +391,10 @@ int main(int argc, char *argv[]) {
         while (keepRunning)
         {
                 Pa_Sleep(1000);
-                printf("inputRate = %.4f\t", inputRate);
-                printf("resampleRatio = %.4f\t", resampleRatio);
-                printf("inputData = %8lu\t", inputData.frames);
-                printf("outputData = %8lu\t", outputData.frames);
+                printf("inputRate = %8.4f, ", inputRate);
+                printf("resampleRatio = %8.4f, ", resampleRatio);
+                printf("inputData = %4lu, ", inputData.frames);
+                printf("outputData = %6lu", outputData.frames);
                 printf("\n");
         }
 
