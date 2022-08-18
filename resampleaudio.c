@@ -18,15 +18,10 @@
 #if defined __linux__ || defined __APPLE__
 // Linux and macOS code goes here
 #include <unistd.h>
-#define min(x, y) (x<y ? x : y)
-#define max(x, y) (x>y ? x : y)
-
+#define min(x, y) ((x)<(y) ? x : y)
+#define max(x, y) ((x)>(y) ? x : y)
 #elif defined _WIN32
 // Windows code goes here
-#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
-
-#else
-#error Unsupported platform
 #endif
 
 #include "portaudio.h"
@@ -160,7 +155,7 @@ static int output_callback( const void *input,
         memcpy(data, outputData->data, len);
 
         len = (frameCount - newFrames) * channelCount * sizeof(float);
-        bzero(data + newFrames * channelCount, len);
+        memset(data + newFrames * channelCount, 0, len);
 
         len = (outputData->frames - newFrames) * channelCount * sizeof(float);
         memcpy(outputData->data, outputData->data + newFrames * channelCount, len);
@@ -329,14 +324,14 @@ int main(int argc, char *argv[]) {
         if ((inputData.data = malloc(inputBufsize * channelCount * sizeof(float))) == NULL)
                 goto error2;
         else
-                bzero(inputData.data, inputBufsize * channelCount * sizeof(float));
+                memset(inputData.data, 0, inputBufsize * channelCount * sizeof(float));
 
         outputData.frames = 0;
         outputData.data = NULL;
         if ((outputData.data = malloc(outputBufsize * channelCount * sizeof(float))) == NULL)
                 goto error2;
         else
-                bzero(outputData.data, outputBufsize * channelCount * sizeof(float));
+                memset(outputData.data, 0, outputBufsize * channelCount * sizeof(float));
 
         /* STAGE 3: Initialize the resampling. */
 
