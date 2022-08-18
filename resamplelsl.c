@@ -13,19 +13,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #if defined __linux__ || defined __APPLE__
 // Linux and macOS code goes here
 #include <unistd.h>
-#define min(x, y) (x<y ? x : y)
-#define max(x, y) (x>y ? x : y)
-
+#define min(x, y) ((x)<(y) ? x : y)
+#define max(x, y) ((x)>(y) ? x : y)
 #elif defined _WIN32
 // Windows code goes here
-#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
-
-#else
-#error Unsupported platform
 #endif
 
 #include "portaudio.h"
@@ -145,7 +141,7 @@ static int output_callback(const void *input,
         memcpy(data, outputData->data, len);
 
         len = (frameCount - newFrames) * channelCount * sizeof(float);
-        bzero(data + newFrames * channelCount, len);
+        memset(data + newFrames * channelCount, 0, len);
 
         len = (outputData->frames - newFrames) * channelCount * sizeof(float);
         memcpy(outputData->data, outputData->data + newFrames * channelCount, len);
@@ -153,7 +149,7 @@ static int output_callback(const void *input,
         outputData->frames -= newFrames;
 
         for (unsigned int i = 0; i < (newFrames * channelCount); i++)
-            outputLimit = max(outputLimit, abs(data[i]));
+            outputLimit = max(outputLimit, fabsf(data[i]));
 
         if (enableResample)
                 resample_buffers();
@@ -205,10 +201,10 @@ int main(int argc, char* argv[]) {
         channelCount = lsl_get_channel_count(info);
         inputRate = lsl_get_nominal_srate(info);
 
-        printf("type         = %s\n", type);
-        printf("name         = %s\n", name);
+        printf("type = %s\n", type);
+        printf("name = %s\n", name);
         printf("channelCount = %d\n", channelCount);
-        printf("inputRate    = %f\n", inputRate);
+        printf("inputRate = %f\n", inputRate);
 
         inputBufsize = BUFFER * inputRate;
         inputBlocksize = 1;
@@ -319,14 +315,14 @@ int main(int argc, char* argv[]) {
         if ((inputData.data = malloc(inputBufsize * channelCount * sizeof(float))) == NULL)
                 goto error2;
         else
-                bzero(inputData.data, inputBufsize * channelCount * sizeof(float));
+                memset(inputData.data, 0, inputBufsize * channelCount * sizeof(float));
 
         outputData.frames = 0;
         outputData.data = NULL;
         if ((outputData.data = malloc(outputBufsize * channelCount * sizeof(float))) == NULL)
                 goto error2;
         else
-                bzero(outputData.data, outputBufsize * channelCount * sizeof(float));
+                memset(outputData.data, 0, outputBufsize * channelCount * sizeof(float));
 
         /* STAGE 3: Initialize the resampling. */
 
@@ -379,7 +375,7 @@ int main(int argc, char* argv[]) {
                 /* add the current sample to the input buffer and increment the counter */
                 for (unsigned int i = 0; i < channelCount; i++)
                 {
-                    outputLimit = max(outputLimit, abs(eegdata[i]));
+                    outputLimit = max(outputLimit, fabsf(eegdata[i]));
                     inputData.data[inputData.frames * channelCount + i] = eegdata[i] / outputLimit;
                 }
                 inputData.frames++;
@@ -435,7 +431,7 @@ int main(int argc, char* argv[]) {
                 /* add the current sample to the input buffer and increment the counter */
                 for (unsigned int i = 0; i < channelCount; i++)
                 {
-                    outputLimit = max(outputLimit, abs(eegdata[i]));
+                    outputLimit = max(outputLimit, fabsf(eegdata[i]));
                     inputData.data[inputData.frames * channelCount + i] = eegdata[i] / outputLimit;
                 }
                 inputData.frames++;
