@@ -197,6 +197,12 @@ int main(int argc, char* argv[]) {
         printf("Looking for LSL streams...\n");
 
         streamCount = lsl_resolve_all(info, STREAMCOUNT, TIMEOUT);
+        
+        if (streamCount <= 0)
+        {
+                printf("ERROR: No LSL streams available.\n");
+                goto error0;
+        }
         printf("Number of LSL streams = %d\n", streamCount);
         
         for (int i=0; i<streamCount; i++)
@@ -380,7 +386,7 @@ int main(int argc, char* argv[]) {
 
         printf("Filling buffer...\n");
         timestampPrev = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info[inputStream]), TIMEOUT, &lslErr);
-        if (timestamp == 0)
+        if (timestamp == 0 || lslErr)
         {
                 printf("ERROR: Cannot pull sample.\n");
                 //printf("ERROR: %s\n", lsl_last_error());
@@ -391,7 +397,7 @@ int main(int argc, char* argv[]) {
         while (samplesReceived<inputBufsize/2)
         {
                 timestamp = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info[inputStream]), TIMEOUT, &lslErr);
-                if (timestamp == 0)
+                if (timestamp == 0 || lslErr)
                 {
                         printf("ERROR: Cannot pull sample.\n");
                         //printf("ERROR: %s\n", lsl_last_error());
@@ -435,7 +441,7 @@ int main(int argc, char* argv[]) {
         while (1)
         {
                 timestamp = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info[inputStream]), TIMEOUT, &lslErr);
-                if (timestamp == 0)
+                if (timestamp == 0 || lslErr)
                 {
                         printf("ERROR: Cannot pull sample.\n");
                         //printf("ERROR: %s\n", lsl_last_error());
