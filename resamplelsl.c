@@ -32,9 +32,11 @@
 #define smooth(old, new, lambda) ((1.0-lambda)*(old) + (lambda)*(new))
 
 #define SAMPLETYPE    paFloat32
-#define BLOCKSIZE     (0.01) // in seconds
-#define BUFFER        (2.00) // in seconds
+#define BLOCKSIZE     (0.01)  // in seconds
+#define BUFFER        (2.00)  // in seconds
 #define DEFAULTRATE   (44100.0)
+#define TIMEOUT       (3.0)   // for LSL
+#define STREAMCOUNT   (32)    //maximum number of LSL streams
 
 typedef struct {
         float *data;
@@ -69,7 +71,6 @@ int resample_buffers(void)
         /* check whether there is room for new data in the output buffer */
         if (outputData.frames==outputBufsize)
                 return 0;
-
 
         int srcErr = src_process (resampleState, &resampleData);
         if (srcErr)
@@ -149,8 +150,8 @@ static int output_callback(const void *input,
         outputData->frames -= newFrames;
 
         for (unsigned int i = 0; i < (newFrames * channelCount); i++)
-            outputLimit = max(outputLimit, fabsf(data[i]));
-
+          outputLimit = max(outputLimit, fabsf(data[i]));
+            
         if (enableResample)
                 resample_buffers();
 
@@ -180,26 +181,46 @@ int main(int argc, char* argv[]) {
         const PaDeviceInfo *deviceInfo;
 
         /* variables that are specific for LSL */
-        lsl_streaminfo info;
+        unsigned int inputStream;
+        lsl_streaminfo info[STREAMCOUNT];
         lsl_inlet inlet;
         int lslErr = 0;
         float *eegdata = NULL;
         double timestamp, timestampPrev, timestampPerSample;
         unsigned long samplesReceived = 0;
         const char *type, *name;
+        int streamCount = 0;
 
         /* STAGE 1: Initialize the EEG input and audio output. */
 
         printf("LSL version: %s\n", lsl_library_info());
-        printf("Waiting for an LSL stream of type EEG...\n");
-        lsl_resolve_byprop(&info, 1, "type", "EEG", 1, LSL_FOREVER);
+        printf("Looking for LSL streams...\n");
 
-        type = lsl_get_type(info);
-        name = lsl_get_name(info);
+        streamCount = lsl_resolve_all(info, STREAMCOUNT, TIMEOUT);
+        printf("Number of LSL streams = %d\n", streamCount);
+        
+        for (int i=0; i<streamCount; i++)
+        {
+            printf("stream %d - ", i);
+            printf("type = %s, ", lsl_get_type(info[i]));
+            printf("name = %s, ", lsl_get_name(info[i]));
+            printf("channelCount = %d, ", lsl_get_channel_count(info[i]));
+            printf("inputRate = %.4f\n", lsl_get_nominal_srate(info[i]));
+        }
+        printf("Select input stream [%d]: ", 0);
+        fgets(line, STRLEN, stdin);
+        if (strlen(line)==1)
+                inputStream = 0;
+        else
+                inputStream = atoi(line);
+
+        /* continute with the selected stream */
+        type = lsl_get_type(info[inputStream]);
+        name = lsl_get_name(info[inputStream]);
 
         /* the channelCount and inputRate are global variables */
-        channelCount = lsl_get_channel_count(info);
-        inputRate = lsl_get_nominal_srate(info);
+        channelCount = lsl_get_channel_count(info[inputStream]);
+        inputRate = lsl_get_nominal_srate(info[inputStream]);
 
         printf("type = %s\n", type);
         printf("name = %s\n", name);
@@ -348,26 +369,32 @@ int main(int argc, char* argv[]) {
                 goto error3;
         }
 
-        inlet = lsl_create_inlet(info, 30, LSL_NO_PREFERENCE, 1);
-        lsl_open_stream(inlet, LSL_FOREVER, &lslErr);
+        inlet = lsl_create_inlet(info[inputStream], 30, LSL_NO_PREFERENCE, 1);
+        lsl_open_stream(inlet, TIMEOUT, &lslErr);
         if (lslErr != 0)
         {
                 printf("ERROR: Cannot open input stream\n");
-                printf("ERROR: %s\n", lsl_last_error());
+                //printf("ERROR: %s\n", lsl_last_error());
                 goto error4;
         }
 
         printf("Filling buffer...\n");
-        timestampPrev = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info), LSL_FOREVER, &lslErr);
+        timestampPrev = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info[inputStream]), TIMEOUT, &lslErr);
+        if (timestamp == 0)
+        {
+                printf("ERROR: Cannot pull sample.\n");
+                //printf("ERROR: %s\n", lsl_last_error());
+                goto error4;
+        }
 
         /* wait one second to fill the input buffer halfway */
         while (samplesReceived<inputBufsize/2)
         {
-                timestamp = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info), LSL_FOREVER, &lslErr);
-                if (lslErr != 0)
+                timestamp = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info[inputStream]), TIMEOUT, &lslErr);
+                if (timestamp == 0)
                 {
                         printf("ERROR: Cannot pull sample.\n");
-                        printf("ERROR: %s\n", lsl_last_error());
+                        //printf("ERROR: %s\n", lsl_last_error());
                         goto error4;
                 }
                 samplesReceived++;
@@ -407,17 +434,17 @@ int main(int argc, char* argv[]) {
 
         while (1)
         {
-                timestamp = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info), LSL_FOREVER, &lslErr);
-                if (lslErr != 0)
+                timestamp = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info[inputStream]), TIMEOUT, &lslErr);
+                if (timestamp == 0)
                 {
                         printf("ERROR: Cannot pull sample.\n");
-                        printf("ERROR: %s\n", lsl_last_error());
-                        goto error3;
+                        //printf("ERROR: %s\n", lsl_last_error());
+                        goto error4;
                 }
                 samplesReceived++;
 
                 /* update the estimated input sample rate, smooth over 100 seconds */
-                timestampPerSample = smooth(timestampPerSample, timestamp - timestampPrev, 0.01/lsl_get_nominal_srate(info));
+                timestampPerSample = smooth(timestampPerSample, timestamp - timestampPrev, 0.01/lsl_get_nominal_srate(info[inputStream]));
                 timestampPrev = timestamp;
                 inputRate = 1.0/timestampPerSample;
 
@@ -436,7 +463,7 @@ int main(int argc, char* argv[]) {
                 }
                 inputData.frames++;
 
-                if ((samplesReceived % (unsigned long)lsl_get_nominal_srate(info)) == 0)
+                if ((samplesReceived % (unsigned long)lsl_get_nominal_srate(info[inputStream])) == 0)
                 {
                         printf("inputRate = %8.4f, ", inputRate);
                         printf("resampleRatio = %8.4f, ", resampleRatio);
@@ -465,6 +492,8 @@ error1:
                 printf("Samplerate error number: %d\n", srcErr);
         if (paErr)
                 printf("PortAudio error number: %d\n", paErr);
+
+error0:
         printf("Finished.");
         return lslErr;
 }
