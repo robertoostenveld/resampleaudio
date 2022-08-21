@@ -386,7 +386,7 @@ int main(int argc, char* argv[]) {
 
         printf("Filling buffer...\n");
         timestampPrev = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info[inputStream]), TIMEOUT, &lslErr);
-        if (timestamp == 0 || lslErr)
+        if (timestampPrev == 0 || lslErr)
         {
                 printf("ERROR: Cannot pull sample.\n");
                 //printf("ERROR: %s\n", lsl_last_error());
