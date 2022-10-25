@@ -32,7 +32,7 @@
 
 #define SAMPLETYPE          paFloat32
 #define BLOCKSIZE           (0.01) // in seconds
-#define BUFFER              (2.00) // in seconds
+#define BUFFERSIZE          (2.00) // in seconds
 #define DEFAULTRATE         (44100.0)
 
 typedef struct {
@@ -174,6 +174,7 @@ void stream_finished(void *userData)
 /*******************************************************************************************************/
 int main(int argc, char *argv[]) {
         char line[STRLEN];
+        float bufferSize, blockSize;
 
         int inputDevice, outputDevice;
         PaStream *inputStream, *outputStream;
@@ -185,7 +186,20 @@ int main(int argc, char *argv[]) {
         /* STAGE 1: Initialize the audio input and output. */
 
         printf("PortAudio version: 0x%08X\n", Pa_GetVersion());
-//				printf("Version text: '%s'\n", Pa_GetVersionInfo()->versionText );
+
+        printf("Buffer size in seconds [%.4f]: ", BUFFERSIZE);
+        fgets(line, STRLEN, stdin);
+        if (strlen(line) == 1)
+            bufferSize = BUFFERSIZE;
+        else
+            bufferSize = atof(line);
+
+        printf("Block size in seconds [%.4f]: ", BLOCKSIZE);
+        fgets(line, STRLEN, stdin);
+        if (strlen(line) == 1)
+            blockSize = BLOCKSIZE;
+        else
+            blockSize = atof(line);
 
         inputParameters.device = paNoDevice;
         outputParameters.device = paNoDevice;
@@ -253,8 +267,8 @@ int main(int argc, char *argv[]) {
         inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
         inputParameters.hostApiSpecificStreamInfo = NULL;
 
-        inputBufsize = BUFFER * inputRate;
-        inputBlocksize = BLOCKSIZE * inputRate;
+        inputBufsize = bufferSize * inputRate;
+        inputBlocksize = blockSize * inputRate;
 
         paErr = Pa_OpenStream(
                 &inputStream,
@@ -295,8 +309,8 @@ int main(int argc, char *argv[]) {
         outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
         outputParameters.hostApiSpecificStreamInfo = NULL;
 
-        outputBufsize = BUFFER * outputRate;
-        outputBlocksize = BLOCKSIZE * outputRate;
+        outputBufsize = bufferSize * outputRate;
+        outputBlocksize = blockSize * outputRate;
 
         paErr = Pa_OpenStream(
                 &outputStream,
