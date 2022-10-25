@@ -11,8 +11,8 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+#include <stdlib.h>
 #include <math.h>
 
 #if defined __linux__ || defined __APPLE__
@@ -28,15 +28,16 @@
 #include "samplerate.h"
 #include "lsl_c.h"
 
-#define STRLEN 80
 #define smooth(old, new, lambda) ((1.0-lambda)*(old) + (lambda)*(new))
 
+#define STRLEN        (80)
 #define SAMPLETYPE    paFloat32
 #define BLOCKSIZE     (0.01)  // in seconds
-#define BUFFER        (2.00)  // in seconds
+#define BUFFERSIZE    (2.00)  // in seconds
 #define DEFAULTRATE   (44100.0)
 #define TIMEOUT       (3.0)   // for LSL
 #define STREAMCOUNT   (32)    //maximum number of LSL streams
+#define HPFILTER      (10.0)
 
 typedef struct {
         float *data;
@@ -150,8 +151,8 @@ static int output_callback(const void *input,
         outputData->frames -= newFrames;
 
         for (unsigned int i = 0; i < (newFrames * channelCount); i++)
-          outputLimit = max(outputLimit, fabsf(data[i]));
-            
+                outputLimit = max(outputLimit, fabsf(data[i]));
+
         if (enableResample)
                 resample_buffers();
 
@@ -171,6 +172,7 @@ void stream_finished(void *userData)
 /*******************************************************************************************************/
 int main(int argc, char* argv[]) {
         char line[STRLEN];
+        float bufferSize, blockSize, hpFilter;
 
         /* variables that are specific for PortAudio */
         unsigned int outputDevice;
@@ -185,7 +187,7 @@ int main(int argc, char* argv[]) {
         lsl_streaminfo info[STREAMCOUNT];
         lsl_inlet inlet;
         int lslErr = 0;
-        float *eegdata = NULL;
+        float *eegdata = NULL, *eegfilt = NULL;
         double timestamp, timestampPrev, timestampPerSample;
         unsigned long samplesReceived = 0;
         const char *type, *name;
@@ -197,21 +199,35 @@ int main(int argc, char* argv[]) {
         printf("Looking for LSL streams...\n");
 
         streamCount = lsl_resolve_all(info, STREAMCOUNT, TIMEOUT);
-        
+
         if (streamCount <= 0)
         {
                 printf("ERROR: No LSL streams available.\n");
                 goto error0;
         }
         printf("Number of LSL streams = %d\n", streamCount);
-        
+
+        printf("Buffer size in seconds [%.4f]: ", BUFFERSIZE);
+        fgets(line, STRLEN, stdin);
+        if (strlen(line) == 1)
+                bufferSize = BUFFERSIZE;
+        else
+                bufferSize = atof(line);
+
+        printf("Block size in seconds [%.4f]: ", BLOCKSIZE);
+        fgets(line, STRLEN, stdin);
+        if (strlen(line) == 1)
+                blockSize = BLOCKSIZE;
+        else
+                blockSize = atof(line);
+
         for (int i=0; i<streamCount; i++)
         {
-            printf("stream %d - ", i);
-            printf("type = %s, ", lsl_get_type(info[i]));
-            printf("name = %s, ", lsl_get_name(info[i]));
-            printf("channelCount = %d, ", lsl_get_channel_count(info[i]));
-            printf("inputRate = %.4f\n", lsl_get_nominal_srate(info[i]));
+                printf("stream %d - ", i);
+                printf("type = %s, ", lsl_get_type(info[i]));
+                printf("name = %s, ", lsl_get_name(info[i]));
+                printf("channelCount = %d, ", lsl_get_channel_count(info[i]));
+                printf("inputRate = %.4f\n", lsl_get_nominal_srate(info[i]));
         }
         printf("Select input stream [%d]: ", 0);
         fgets(line, STRLEN, stdin);
@@ -233,11 +249,20 @@ int main(int argc, char* argv[]) {
         printf("channelCount = %d\n", channelCount);
         printf("inputRate = %f\n", inputRate);
 
-        inputBufsize = BUFFER * inputRate;
+        printf("High-pass filter in seconds [%.0f]: ", HPFILTER);
+        fgets(line, STRLEN, stdin);
+        if (strlen(line) == 1)
+                /* this implements an exponential decay of 1/2 after 10 seconds at 250 Hz */
+                hpFilter = 1.0 - pow(0.5, 1.0/(inputRate*HPFILTER));
+        else
+                hpFilter = 1.0 - pow(0.5, 1.0/(inputRate*atof(line)));
+
+        inputBufsize = bufferSize * inputRate;
         inputBlocksize = 1;
 
         eegdata = malloc(channelCount * sizeof(float));
-        if (eegdata == NULL)
+        eegfilt = malloc(channelCount * sizeof(float));
+        if (eegdata == NULL || eegfilt == NULL)
         {
                 printf("ERROR: Cannot allocate memory.");
                 goto error1;
@@ -268,18 +293,18 @@ int main(int argc, char* argv[]) {
         printf("Number of devices = %d\n", numDevices);
         for (int i = 0; i < numDevices; i++)
         {
-            deviceInfo = Pa_GetDeviceInfo(i);
-            if (Pa_GetHostApiCount() == 1)
-                printf("device %2d - %s (%d in, %d out)\n", i,
-                    deviceInfo->name,
-                    deviceInfo->maxInputChannels,
-                    deviceInfo->maxOutputChannels);
-            else
-                printf("device %2d - %s - %s (%d in, %d out)\n", i,
-                    Pa_GetHostApiInfo(deviceInfo->hostApi)->name,
-                    deviceInfo->name,
-                    deviceInfo->maxInputChannels,
-                    deviceInfo->maxOutputChannels);
+                deviceInfo = Pa_GetDeviceInfo(i);
+                if (Pa_GetHostApiCount() == 1)
+                        printf("device %2d - %s (%d in, %d out)\n", i,
+                               deviceInfo->name,
+                               deviceInfo->maxInputChannels,
+                               deviceInfo->maxOutputChannels);
+                else
+                        printf("device %2d - %s - %s (%d in, %d out)\n", i,
+                               Pa_GetHostApiInfo(deviceInfo->hostApi)->name,
+                               deviceInfo->name,
+                               deviceInfo->maxInputChannels,
+                               deviceInfo->maxOutputChannels);
         }
         printf("Select output device [%d]: ", Pa_GetDefaultOutputDevice());
         fgets(line, STRLEN, stdin);
@@ -299,9 +324,9 @@ int main(int argc, char* argv[]) {
         printf("Number of channels [%d]: ", min(channelCount, deviceInfo->maxOutputChannels));
         fgets(line, STRLEN, stdin);
         if (strlen(line) == 1)
-            channelCount = min(channelCount, deviceInfo->maxOutputChannels);
+                channelCount = min(channelCount, deviceInfo->maxOutputChannels);
         else
-            channelCount = min(channelCount, atoi(line));
+                channelCount = min(channelCount, atoi(line));
 
         printf("outputDevice = %d\n", outputDevice);
         printf("outputRate = %f\n", outputRate);
@@ -313,8 +338,8 @@ int main(int argc, char* argv[]) {
         outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultLowOutputLatency;
         outputParameters.hostApiSpecificStreamInfo = NULL;
 
-        outputBufsize = BUFFER * outputRate;
-        outputBlocksize = BLOCKSIZE * outputRate;
+        outputBufsize = bufferSize * outputRate;
+        outputBlocksize = blockSize * outputRate;
 
         paErr = Pa_OpenStream(
                 &outputStream,
@@ -384,6 +409,20 @@ int main(int argc, char* argv[]) {
                 goto error4;
         }
 
+        /* get the first sample */
+        timestamp = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info[inputStream]), TIMEOUT, &lslErr);
+        if (timestamp == 0 || lslErr)
+        {
+                printf("ERROR: Cannot pull sample.\n");
+                //printf("ERROR: %s\n", lsl_last_error());
+                goto error4;
+        }
+
+        /* initialize an exponential smoothing filter */
+        for (int i=0; i<channelCount; i++) {
+                eegfilt[i] = eegdata[i];
+        }
+
         printf("Filling buffer...\n");
         timestampPrev = lsl_pull_sample_f(inlet, eegdata, lsl_get_channel_count(info[inputStream]), TIMEOUT, &lslErr);
         if (timestampPrev == 0 || lslErr)
@@ -405,11 +444,17 @@ int main(int argc, char* argv[]) {
                 }
                 samplesReceived++;
 
+                /* apply a highpass filter by subtracting a smoothed version of the signal */
+                for (int i=0; i<channelCount; i++) {
+                        eegfilt[i] = smooth(eegfilt[i], eegdata[i], hpFilter);
+                        eegdata[i] -= eegfilt[i];
+                }
+
                 /* add the current sample to the input buffer and increment the counter */
                 for (unsigned int i = 0; i < channelCount; i++)
                 {
-                    outputLimit = max(outputLimit, fabsf(eegdata[i]));
-                    inputData.data[inputData.frames * channelCount + i] = eegdata[i] / outputLimit;
+                        outputLimit = max(outputLimit, fabsf(eegdata[i]));
+                        inputData.data[inputData.frames * channelCount + i] = eegdata[i] / outputLimit;
                 }
                 inputData.frames++;
         }
@@ -449,6 +494,12 @@ int main(int argc, char* argv[]) {
                 }
                 samplesReceived++;
 
+                /* apply a highpass filter by subtracting a smoothed version of the signal */
+                for (int i=0; i<channelCount; i++) {
+                        eegfilt[i] = smooth(eegfilt[i], eegdata[i], hpFilter);
+                        eegdata[i] -= eegfilt[i];
+                }
+
                 /* update the estimated input sample rate, smooth over 100 seconds */
                 timestampPerSample = smooth(timestampPerSample, timestamp - timestampPrev, 0.01/lsl_get_nominal_srate(info[inputStream]));
                 timestampPrev = timestamp;
@@ -464,8 +515,8 @@ int main(int argc, char* argv[]) {
                 /* add the current sample to the input buffer and increment the counter */
                 for (unsigned int i = 0; i < channelCount; i++)
                 {
-                    outputLimit = max(outputLimit, fabsf(eegdata[i]));
-                    inputData.data[inputData.frames * channelCount + i] = eegdata[i] / outputLimit;
+                        outputLimit = max(outputLimit, fabsf(eegdata[i]));
+                        inputData.data[inputData.frames * channelCount + i] = eegdata[i] / outputLimit;
                 }
                 inputData.frames++;
 
@@ -490,6 +541,8 @@ error3:
 error2:
         if (eegdata)
                 free(eegdata);
+        if (eegfilt)
+                free(eegfilt);
 
 error1:
         Pa_Terminate();
