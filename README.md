@@ -18,6 +18,27 @@ This application takes an input LSL stream - for example from the Unicorn EEG sy
 
 This application makes use of [PortAudio](http://www.portaudio.com), [libsamplerate (aka Secret Rabbit Code )](http://libsndfile.github.io/libsamplerate/) and [liblsl (aka LabStreamingLayer)](https://labstreaminglayer.readthedocs.io/projects/liblsl/).
 
+# External dependencies
+
+- <http://www.portaudio.com> and <http://libsndfile.github.io/libsamplerate> for both applications
+- <https://labstreaminglayer.readthedocs.io> for `resamplelsl`
+
+You can install these with your platform-specific package manager (homebrew, apt, yum), after which they will end up in `/usr/local/lib` and `/usr/local/include`. You can also install them manually in the `external` directory. In that case the directory layout should be
+
+```
+external/
+├── portaudio
+│   ├── include
+│   └── lib
+├── samplerate
+│   ├── include
+│   └── lib
+└── lsl
+    ├── include
+    └── lib
+```
+
+
 # Copyrights
 
 Copyright (C) 2022, Robert Oostenveld
