@@ -1,6 +1,6 @@
-# Resample EEG and use it as audio
+# Use EEG as audio, or use audio as EEG
 
-This package can be used to upsample an EEG data stream (for example at 250 Hz) to a standard audio sampling rate. The recommended output sample rate for Ableton Live is 44100 or 48000 Hz.
+This package is meant to provide a bridge between audio software, such as Ableton Live, and EEG acquisition systems and real-time EEG analysis software. The provided applications can be used to upsample an EEG data stream to a standard audio sampling rate, or to downsample an audio data stream to a rate more common for EEG. The recommended output sample rate for Ableton Live is 44100 or 48000 Hz, the typical sampling rate for EEG systems is 250 Hz.
 
 For macOS you can use [BlackHole](https://github.com/ExistentialAudio/BlackHole) (recommended) or [SoundFlower](https://github.com/mattingalls/Soundflower) (outdated) to create virtual audio devices.
 
@@ -12,16 +12,14 @@ This application takes an input audio stream - for example the 8000 Hz stream fr
 
 This application makes use of [PortAudio](http://www.portaudio.com) and [Secret Rabbit Code (aka libsamplerate)](http://libsndfile.github.io/libsamplerate/).
 
-## resamplelsl
+## lsl2audio
 
-This application takes an input LSL stream - for example from the Unicorn EEG system - and resamples/upsamples and streams it to another (virtual) output audio device.
-
-This application makes use of [PortAudio](http://www.portaudio.com), [libsamplerate (aka Secret Rabbit Code )](http://libsndfile.github.io/libsamplerate/) and [liblsl (aka LabStreamingLayer)](https://labstreaminglayer.readthedocs.io/projects/liblsl/).
+This application takes an input LSL stream, resamples/upsamples it to a standard audio rate, and streams it to a (virtual) output audio device.
 
 # External dependencies
 
 - <http://www.portaudio.com> and <http://libsndfile.github.io/libsamplerate> for both applications
-- <https://labstreaminglayer.readthedocs.io> for `resamplelsl`
+- <https://labstreaminglayer.readthedocs.io> for `lsl2audio` and `audio2lsl`.
 
 You can install these with your platform-specific package manager (homebrew, apt, yum), after which they will end up in `/usr/local/lib` and `/usr/local/include`. You can also install them manually in the `external` directory. In that case the directory layout should be
 

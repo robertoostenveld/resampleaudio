@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 project(resampleaudio VERSION 1.0)
 
 add_executable(resampleaudio resampleaudio.c)
-add_executable(resamplelsl resamplelsl.c)
+add_executable(lsl2audio lsl2audio.c)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -20,9 +20,10 @@ endif()
 if (APPLE)
 # these are needed by the static libportaudio.a that is installed by homebrew
 target_link_libraries(resampleaudio "-framework CoreServices -framework CoreFoundation -framework AudioUnit -framework AudioToolbox -framework CoreAudio")
-target_link_libraries(resamplelsl "-framework CoreServices -framework CoreFoundation -framework AudioUnit -framework AudioToolbox -framework CoreAudio")
+target_link_libraries(lsl2audio "-framework CoreServices -framework CoreFoundation -framework AudioUnit -framework AudioToolbox -framework CoreAudio")
+target_link_libraries(audio2lsl "-framework CoreServices -framework CoreFoundation -framework AudioUnit -framework AudioToolbox -framework CoreAudio")
 # this is needed for the static liblsl
-target_link_libraries(resamplelsl c++)
+target_link_libraries(lsl2audio c++)
 endif()
 
 # use static libraries where possible to facilitate distribution of the executable
@@ -31,4 +32,4 @@ find_library(RESAMPLE NAMES libsamplerate.a samplerate.lib PATHS external/sample
 find_library(LSL NAMES liblsl.a lsl.lib PATHS external/lsl/lib /usr/local/lib)
 
 target_link_libraries(resampleaudio ${PORTAUDIO} ${RESAMPLE})
-target_link_libraries(resamplelsl ${PORTAUDIO} ${RESAMPLE} ${LSL})
+target_link_libraries(lsl2audio ${PORTAUDIO} ${RESAMPLE} ${LSL})
