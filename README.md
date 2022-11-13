@@ -16,6 +16,10 @@ This application makes use of [PortAudio](http://www.portaudio.com) and [Secret 
 
 This application takes an input LSL stream, resamples/upsamples it to a standard audio rate, and streams it to a (virtual) output audio device.
 
+## audio2lsl
+
+This application takes an input audio stream at an standard audio rate, for example from a (virtual) output audio device, resamples/downsamples it to an EEG rate and outputs it to an LSL stream.
+
 # External dependencies
 
 - <http://www.portaudio.com> and <http://libsndfile.github.io/libsamplerate> for both applications
