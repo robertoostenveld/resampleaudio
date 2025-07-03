@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 include_directories(/usr/local/include)
+include_directories(/opt/homebrew/include)
 include_directories(external/portaudio/include external/samplerate/include external/lsl/include)
 
 if (UNIX)
@@ -29,9 +30,9 @@ target_link_libraries(audio2lsl c++)
 endif()
 
 # use static libraries where possible to facilitate distribution of the executable
-find_library(PORTAUDIO NAMES libportaudio.a portaudio.lib portaudio_static_x64.lib portaudio_x64.lib PATHS external/portaudio/lib /usr/local/lib)
-find_library(RESAMPLE NAMES libsamplerate.a samplerate.lib PATHS external/samplerate/lib /usr/local/lib)
-find_library(LSL NAMES liblsl.a lsl.lib PATHS external/lsl/lib /usr/local/lib)
+find_library(PORTAUDIO NAMES libportaudio.a portaudio.lib portaudio_static_x64.lib portaudio_x64.lib PATHS external/portaudio/lib /usr/local/lib /opt/homebrew/lib)
+find_library(RESAMPLE NAMES libsamplerate.a samplerate.lib PATHS external/samplerate/lib /usr/local/lib /opt/homebrew/lib)
+find_library(LSL NAMES liblsl.a lsl.lib PATHS external/lsl/lib /usr/local/lib /opt/homebrew/lib)
 
 target_link_libraries(resampleaudio ${PORTAUDIO} ${RESAMPLE})
 target_link_libraries(lsl2audio ${PORTAUDIO} ${RESAMPLE} ${LSL})

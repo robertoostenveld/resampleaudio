@@ -4,3 +4,4 @@ out
 .vs
 external
 CMakeSettings.json
+.DS_Store
